@@ -132,23 +132,57 @@ export class Renderer {
     for (let i = 0; i < fire; i++) {
       const a = r() * Math.PI * 2;
       const s = r() * 40 * size;
-      p.spawn(Sprite.Fire, x + Math.cos(a) * 4 * size, y + Math.sin(a) * 4 * size, { vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: 10 + r() * 30, size: 14 * size + r() * 10, grow: 12, life: 0.35 + r() * 0.4, drag: 2 });
+      p.spawn(Sprite.Fire, x + Math.cos(a) * 4 * size, y + Math.sin(a) * 4 * size, {
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s,
+        vz: 10 + r() * 30,
+        size: 14 * size + r() * 10,
+        grow: 12,
+        life: 0.35 + r() * 0.4,
+        drag: 2,
+      });
     }
     for (let i = 0; i < fire; i++) {
       const a = r() * Math.PI * 2;
       const s = r() * 25 * size;
-      p.spawn(i % 3 ? Sprite.Smoke : Sprite.DarkSmoke, x, y, { vx: Math.cos(a) * s, vy: Math.sin(a) * s - 6, vz: 15 + r() * 20, size: 12 * size + 8, grow: 18 + 10 * size, life: 1.4 + r() * 1.6, alpha: 0.8, drag: 1.5 });
+      p.spawn(i % 3 ? Sprite.Smoke : Sprite.DarkSmoke, x, y, {
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s - 6,
+        vz: 15 + r() * 20,
+        size: 12 * size + 8,
+        grow: 18 + 10 * size,
+        life: 1.4 + r() * 1.6,
+        alpha: 0.8,
+        drag: 1.5,
+      });
     }
     for (let i = 0; i < 10 * size; i++) {
       const a = r() * Math.PI * 2;
       const s = 60 + r() * 140 * size;
-      p.spawn(Sprite.Spark, x, y, { vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: 30 + r() * 120, gravity: 260, size: 4 + r() * 3, life: 0.4 + r() * 0.5, drag: 1 });
+      p.spawn(Sprite.Spark, x, y, {
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s,
+        vz: 30 + r() * 120,
+        gravity: 260,
+        size: 4 + r() * 3,
+        life: 0.4 + r() * 0.5,
+        drag: 1,
+      });
     }
     if (big)
       for (let i = 0; i < 6 * size; i++) {
         const a = r() * Math.PI * 2;
         const s = 40 + r() * 100 * size;
-        p.spawn(Sprite.Debris, x, y, { vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: 80 + r() * 150, gravity: 400, size: 4 + r() * 5, life: 1.2 + r(), spin: (r() - 0.5) * 20, drag: 0.5 });
+        p.spawn(Sprite.Debris, x, y, {
+          vx: Math.cos(a) * s,
+          vy: Math.sin(a) * s,
+          vz: 80 + r() * 150,
+          gravity: 400,
+          size: 4 + r() * 5,
+          life: 1.2 + r(),
+          spin: (r() - 0.5) * 20,
+          drag: 0.5,
+        });
       }
     p.ring({ x, y, r0: 4, r1: 30 * size + 10, max: 0.35, color: 'rgba(255,220,160,0.8)', width: 3 });
   }
@@ -209,14 +243,25 @@ export class Renderer {
       case 'sparkle':
         for (let i = 0; i < 6 * size; i++) {
           const a = r() * Math.PI * 2;
-          p.spawn(color === '#7fd1ff' ? Sprite.Cyan : color === '#ffd84a' ? Sprite.Spark : Sprite.Green, x, y, { vx: Math.cos(a) * 30, vy: Math.sin(a) * 30, vz: 20 + r() * 30, size: 6 + r() * 4, life: 0.6 + r() * 0.4 });
+          p.spawn(color === '#7fd1ff' ? Sprite.Cyan : color === '#ffd84a' ? Sprite.Spark : Sprite.Green, x, y, {
+            vx: Math.cos(a) * 30,
+            vy: Math.sin(a) * 30,
+            vz: 20 + r() * 30,
+            size: 6 + r() * 4,
+            life: 0.6 + r() * 0.4,
+          });
         }
         break;
       case 'sell':
       case 'capture':
         for (let i = 0; i < 20 * size; i++) {
           const a = r() * Math.PI * 2;
-          p.spawn(kind === 'sell' ? Sprite.Smoke : Sprite.Cyan, x + Math.cos(a) * size * 12, y + Math.sin(a) * size * 12, { vz: 20 + r() * 30, size: 10 + r() * 10, grow: 10, life: 1 + r() });
+          p.spawn(kind === 'sell' ? Sprite.Smoke : Sprite.Cyan, x + Math.cos(a) * size * 12, y + Math.sin(a) * size * 12, {
+            vz: 20 + r() * 30,
+            size: 10 + r() * 10,
+            grow: 10,
+            life: 1 + r(),
+          });
         }
         p.ring({ x, y, r0: 4, r1: size * 30, max: 0.7, color: color ?? '#9ff', width: 3 });
         break;
@@ -247,25 +292,60 @@ export class Renderer {
     const r = Math.random;
     if (this.onScreen(x, y, 600)) this.flash = 1;
     p.spawn(Sprite.Flash, x, y, { size: 900, life: 0.9 });
-    for (let k = 0; k < 4; k++) p.ring({ x, y, r0: 10, r1: 260 + k * 90, max: 1 + k * 0.4, color: k % 2 ? 'rgba(255,240,200,0.9)' : 'rgba(255,140,60,0.9)', width: 10 });
+    for (let k = 0; k < 4; k++)
+      p.ring({ x, y, r0: 10, r1: 260 + k * 90, max: 1 + k * 0.4, color: k % 2 ? 'rgba(255,240,200,0.9)' : 'rgba(255,140,60,0.9)', width: 10 });
     for (let i = 0; i < 180; i++) {
       const a = r() * Math.PI * 2;
       const s = r() * 220;
-      p.spawn(Sprite.Fire, x, y, { vx: Math.cos(a) * s, vy: Math.sin(a) * s * 0.7, vz: r() * 40, size: 30 + r() * 30, grow: 30, life: 0.8 + r() * 1.2, drag: 1.5 });
+      p.spawn(Sprite.Fire, x, y, {
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s * 0.7,
+        vz: r() * 40,
+        size: 30 + r() * 30,
+        grow: 30,
+        life: 0.8 + r() * 1.2,
+        drag: 1.5,
+      });
     }
     // Mushroom column and cap.
     for (let i = 0; i < 120; i++) {
       const h = r() * 220;
-      p.spawn(i % 2 ? Sprite.Fire : Sprite.DarkSmoke, x + (r() - 0.5) * 30, y, { z: h * 0.3, vz: 60 + h * 0.6, size: 30 + r() * 20, grow: 25, life: 2.5 + r() * 2, drag: 0.6, alpha: 0.9 });
+      p.spawn(i % 2 ? Sprite.Fire : Sprite.DarkSmoke, x + (r() - 0.5) * 30, y, {
+        z: h * 0.3,
+        vz: 60 + h * 0.6,
+        size: 30 + r() * 20,
+        grow: 25,
+        life: 2.5 + r() * 2,
+        drag: 0.6,
+        alpha: 0.9,
+      });
     }
     for (let i = 0; i < 90; i++) {
       const a = r() * Math.PI * 2;
-      p.spawn(Sprite.Smoke, x + Math.cos(a) * 30, y + Math.sin(a) * 15, { z: 160, vz: 25, vx: Math.cos(a) * 60, vy: Math.sin(a) * 30, size: 50, grow: 30, life: 4 + r() * 2, alpha: 0.85, drag: 0.6 });
+      p.spawn(Sprite.Smoke, x + Math.cos(a) * 30, y + Math.sin(a) * 15, {
+        z: 160,
+        vz: 25,
+        vx: Math.cos(a) * 60,
+        vy: Math.sin(a) * 30,
+        size: 50,
+        grow: 30,
+        life: 4 + r() * 2,
+        alpha: 0.85,
+        drag: 0.6,
+      });
     }
     for (let i = 0; i < 60; i++) {
       const a = r() * Math.PI * 2;
       const s = 150 + r() * 350;
-      p.spawn(Sprite.Debris, x, y, { vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: 150 + r() * 250, gravity: 400, size: 5 + r() * 6, life: 2 + r(), spin: (r() - 0.5) * 20 });
+      p.spawn(Sprite.Debris, x, y, {
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s,
+        vz: 150 + r() * 250,
+        gravity: 400,
+        size: 5 + r() * 6,
+        life: 2 + r(),
+        spin: (r() - 0.5) * 20,
+      });
     }
   }
 
@@ -278,7 +358,14 @@ export class Renderer {
     for (let i = 0; i < 120; i++) {
       const a = r() * Math.PI * 2;
       const s = r() * 260;
-      p.spawn(i % 3 ? Sprite.Cyan : Sprite.Spark, x, y, { vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: r() * 200, gravity: 200, size: 6 + r() * 10, life: 0.6 + r() });
+      p.spawn(i % 3 ? Sprite.Cyan : Sprite.Spark, x, y, {
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s,
+        vz: r() * 200,
+        gravity: 200,
+        size: 6 + r() * 10,
+        life: 0.6 + r(),
+      });
     }
     this.explosion(x, y, 3, true);
   }
@@ -442,7 +529,12 @@ export class Renderer {
     }
     // Ambient effects.
     if (d.harvester && e.harvestState === 'harvesting' && Math.random() < dt * 8) {
-      this.particles.spawn(Sprite.Green, e.x + Math.cos(e.angle) * 14, e.y + Math.sin(e.angle) * 14, { vz: 20, vx: (Math.random() - 0.5) * 30, size: 6, life: 0.5 });
+      this.particles.spawn(Sprite.Green, e.x + Math.cos(e.angle) * 14, e.y + Math.sin(e.angle) * 14, {
+        vz: 20,
+        vx: (Math.random() - 0.5) * 30,
+        size: 6,
+        life: 0.5,
+      });
       this.particles.spawn(Sprite.Smoke, e.x + Math.cos(e.angle) * 14, e.y + Math.sin(e.angle) * 14, { size: 8, grow: 10, life: 0.6, alpha: 0.3 });
     }
     if (d.cls === 'vehicle' && e.moving && Math.random() < dt * 6) {
@@ -463,7 +555,8 @@ export class Renderer {
       ctx.strokeStyle = 'rgba(255,220,80,0.8)';
       ctx.lineWidth = 1;
       ctx.strokeRect(e.tx * TILE + 1, e.ty * TILE + 1, e.b.w * TILE - 2, e.b.h * TILE - 2);
-      if (Math.random() < dt * 20) this.particles.spawn(Sprite.Spark, px + Math.random() * e.b.w * TILE, py + s.img.height - h, { vz: 40, gravity: 200, size: 4, life: 0.4 });
+      if (Math.random() < dt * 20)
+        this.particles.spawn(Sprite.Spark, px + Math.random() * e.b.w * TILE, py + s.img.height - h, { vz: 40, gravity: 200, size: 4, life: 0.4 });
       return;
     }
     ctx.drawImage(s.img, px, py);

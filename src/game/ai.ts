@@ -272,7 +272,13 @@ export class AI {
       const threat = this.findThreat();
       if (threat) {
         const defenders = units.filter((u) => !this.attackers.has(u.id) && u.u.weapons.length && (!u.order || u.order.type !== 'attack'));
-        if (defenders.length) w.commandMove(defenders.map((u) => u.id), threat.x, threat.y, 'attackMove');
+        if (defenders.length)
+          w.commandMove(
+            defenders.map((u) => u.id),
+            threat.x,
+            threat.y,
+            'attackMove',
+          );
       }
     }
 
@@ -398,4 +404,3 @@ export class AI {
     }
   }
 }
-

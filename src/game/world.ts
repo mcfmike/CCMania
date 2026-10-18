@@ -1,17 +1,7 @@
 import { AI } from './ai';
 import { Onslaught } from './onslaught';
 import { DT, PassClass, TICK_RATE, TILE } from './constants';
-import {
-  ARMOR_INDEX,
-  BUILDINGS,
-  SUPER_CHARGE,
-  UNITS,
-  categoryOf,
-  type BuildingDef,
-  type ProdCategory,
-  type UnitDef,
-  type WeaponDef,
-} from './defs';
+import { ARMOR_INDEX, BUILDINGS, SUPER_CHARGE, UNITS, categoryOf, type BuildingDef, type ProdCategory, type UnitDef, type WeaponDef } from './defs';
 import { Entity, Player, type FxKind, type GameEvent, type Order, type PlayerConfig, resetEntityIds } from './entity';
 import { ORE_MAX, T, type GameMap } from './map';
 import { FlowCache, findNearestCell, nearestPassable, nextStep } from './pathfinding';
@@ -147,8 +137,18 @@ export class World {
       const s = starts[this.startOf[p.index]];
       this.createBuilding(p.index, BUILDINGS.conyard, s.x - 1, s.y - 1, true);
       const army: [string, number][] = this.cfg.mania
-        ? [['lancer', 6], ['rifleman', 8], ['rocketeer', 4], ['howitzer', 2], ['raider', 3]]
-        : [['rifleman', 3], ['rocketeer', 1], ['lancer', 1]];
+        ? [
+            ['lancer', 6],
+            ['rifleman', 8],
+            ['rocketeer', 4],
+            ['howitzer', 2],
+            ['raider', 3],
+          ]
+        : [
+            ['rifleman', 3],
+            ['rocketeer', 1],
+            ['lancer', 1],
+          ];
       // Spread the starting army out in rows in front of the Construction Yard.
       let slot = 0;
       for (const [type, n] of army)
@@ -264,8 +264,7 @@ export class World {
     e.ty = ty;
     e.built = instant ? 1 : 0;
     e.turret = Math.PI / 2;
-    for (let y = ty; y < ty + def.h; y++)
-      for (let x = tx; x < tx + def.w; x++) if (this.map.inBounds(x, y)) this.map.occupant[this.map.idx(x, y)] = e.id;
+    for (let y = ty; y < ty + def.h; y++) for (let x = tx; x < tx + def.w; x++) if (this.map.inBounds(x, y)) this.map.occupant[this.map.idx(x, y)] = e.id;
     this.map.version++;
     this.add(e);
     const p = this.players[owner];
@@ -608,7 +607,8 @@ export class World {
         const cx = Math.floor(x / TILE);
         const cy = Math.floor(y / TILE);
         for (let dy = -r; dy <= r; dy++)
-          for (let dx = -r; dx <= r; dx++) if (this.map.inBounds(cx + dx, cy + dy) && dx * dx + dy * dy <= r * r) this.map.ore[this.map.idx(cx + dx, cy + dy)] = 0;
+          for (let dx = -r; dx <= r; dx++)
+            if (this.map.inBounds(cx + dx, cy + dy) && dx * dx + dy * dy <= r * r) this.map.ore[this.map.idx(cx + dx, cy + dy)] = 0;
         this.map.oreDirty = true;
       });
     }

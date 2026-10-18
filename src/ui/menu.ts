@@ -75,7 +75,14 @@ export class TitleScreen {
   private newBattle(): [World, Renderer] {
     const map = generateMap({ ...DEFAULT_GEN, seed: randomSeed(), width: 64, height: 64 });
     const world = new World(map, {
-      players: [0, 1].map((i) => ({ name: AI_NAMES[i], faction: i ? 'ember' : 'vanguard', color: TEAM_COLORS[i], team: i, human: false, difficulty: 'insane' as Difficulty })),
+      players: [0, 1].map((i) => ({
+        name: AI_NAMES[i],
+        faction: i ? 'ember' : 'vanguard',
+        color: TEAM_COLORS[i],
+        team: i,
+        human: false,
+        difficulty: 'insane' as Difficulty,
+      })),
       mania: true,
       fog: false,
       startCredits: 20000,
@@ -102,10 +109,11 @@ export class TitleScreen {
       this.world.step();
       this.acc -= 1 / TICK_RATE;
     }
-    for (const e of this.world.events) if (e.t === 'fx' && (e.kind === 'explosion' || e.kind === 'bigExplosion') && this.camTimer <= 0) {
-      this.camTarget = { x: e.x, y: e.y };
-      this.camTimer = 4;
-    }
+    for (const e of this.world.events)
+      if (e.t === 'fx' && (e.kind === 'explosion' || e.kind === 'bigExplosion') && this.camTimer <= 0) {
+        this.camTarget = { x: e.x, y: e.y };
+        this.camTimer = 4;
+      }
     this.camTimer -= dt;
     this.renderer.consume(this.world.events.filter((e) => e.t !== 'shake'));
     this.world.events.length = 0;
@@ -131,7 +139,11 @@ function howToPlay(): HTMLElement {
     'div',
     { class: 'howto' },
     el('p', {}, 'Build a base, harvest green Veridium crystals for credits, raise an army and wipe out every enemy structure.'),
-    el('p', {}, 'Start with Power Plants, then a Refinery (comes with a Harvester), Barracks and War Factory. A Comm Center switches on your radar; the Tech Center unlocks Titans / Wraiths, the Commando and your superweapon.'),
+    el(
+      'p',
+      {},
+      'Start with Power Plants, then a Refinery (comes with a Harvester), Barracks and War Factory. A Comm Center switches on your radar; the Tech Center unlocks Titans / Wraiths, the Commando and your superweapon.',
+    ),
     el('p', {}, 'Watch the power bar: low power halves production, disables radar, Rocket Bastions and Spires, and stalls superweapons.'),
     el('p', {}, 'MANIA mode: 3× build speed, double income, 60-second superweapons, bigger starting armies and buildings that explode in chain reactions.'),
   );
@@ -202,7 +214,17 @@ export class SetupScreen {
     const back = el('button', { class: 'btn' }, '← Back');
     back.onclick = actions.back;
 
-    const you = el('div', { class: 'field' }, el('label', {}, 'Your faction'), this.select(['vanguard', 'ember'], ['Vanguard Accord (Ion cannon, Titan)', 'Order of the Ember (Nuke, Stealth, Spire)'], this.faction, (v) => (this.faction = v as Faction)));
+    const you = el(
+      'div',
+      { class: 'field' },
+      el('label', {}, 'Your faction'),
+      this.select(
+        ['vanguard', 'ember'],
+        ['Vanguard Accord (Ion cannon, Titan)', 'Order of the Ember (Nuke, Stealth, Spire)'],
+        this.faction,
+        (v) => (this.faction = v as Faction),
+      ),
+    );
     const colors = el('div', { class: 'swatches' });
     TEAM_COLORS.forEach((c, i) => {
       const s = el('button', { class: `swatch ${i === this.color ? 'on' : ''}`, style: `background:${c}` });
@@ -222,9 +244,30 @@ export class SetupScreen {
       el('div', { class: 'field' }, el('label', {}, 'Game mode'), modeSel),
       you,
       el('div', { class: 'field' }, el('label', {}, 'Colour'), colors),
-      el('div', { class: 'field' }, el('label', {}, 'Teams'), this.select(['vsYou', 'ffa', 'allied'], ['Everyone vs you', 'Free-for-all', 'You + first AI as ally'], this.teamMode, (v) => (this.teamMode = v as typeof this.teamMode))),
-      el('div', { class: 'field' }, el('label', {}, 'Starting credits'), this.select(['5000', '7500', '15000', '50000'], ['$5,000', '$7,500', '$15,000', '$50,000'], String(this.credits), (v) => (this.credits = Number(v)))),
-      this.check('MANIA MODE', 'Triple build speed, double income, 60s superweapons, starting armies, chain-reaction explosions.', this.mania, (v) => (this.mania = v), 'mania'),
+      el(
+        'div',
+        { class: 'field' },
+        el('label', {}, 'Teams'),
+        this.select(
+          ['vsYou', 'ffa', 'allied'],
+          ['Everyone vs you', 'Free-for-all', 'You + first AI as ally'],
+          this.teamMode,
+          (v) => (this.teamMode = v as typeof this.teamMode),
+        ),
+      ),
+      el(
+        'div',
+        { class: 'field' },
+        el('label', {}, 'Starting credits'),
+        this.select(['5000', '7500', '15000', '50000'], ['$5,000', '$7,500', '$15,000', '$50,000'], String(this.credits), (v) => (this.credits = Number(v))),
+      ),
+      this.check(
+        'MANIA MODE',
+        'Triple build speed, double income, 60s superweapons, starting armies, chain-reaction explosions.',
+        this.mania,
+        (v) => (this.mania = v),
+        'mania',
+      ),
       this.check('Fog of war', 'Hide enemy units outside your sight range.', this.fog, (v) => (this.fog = v)),
       this.check('Random start positions', 'Shuffle who starts where.', this.shuffle, (v) => (this.shuffle = v)),
     );
@@ -354,7 +397,14 @@ export class SetupScreen {
           alert(`Could not load map: ${(e as Error).message}`);
         }
       };
-      p.append(input, el('div', { class: 'muted' }, 'Load a .json map from the editor, or a PNG painted with the editor palette (1 pixel = 1 tile, red pixels = start positions).'));
+      p.append(
+        input,
+        el(
+          'div',
+          { class: 'muted' },
+          'Load a .json map from the editor, or a PNG painted with the editor palette (1 pixel = 1 tile, red pixels = start positions).',
+        ),
+      );
     }
   }
 
@@ -434,7 +484,10 @@ export class SetupScreen {
     }
     const insane = el('button', { class: 'btn small danger' }, '☠ Make it insane');
     insane.onclick = () => {
-      this.opponents = Array.from({ length: Math.max(1, this.map.starts.length - 1) }, (_, i) => ({ difficulty: 'insane' as Difficulty, faction: (i % 2 ? 'vanguard' : 'ember') as Faction }));
+      this.opponents = Array.from({ length: Math.max(1, this.map.starts.length - 1) }, (_, i) => ({
+        difficulty: 'insane' as Difficulty,
+        faction: (i % 2 ? 'vanguard' : 'ember') as Faction,
+      }));
       this.mania = true;
       this.teamMode = 'vsYou';
       this.root.querySelectorAll<HTMLInputElement>('.check.mania input').forEach((x) => (x.checked = true));
@@ -451,7 +504,15 @@ export class SetupScreen {
         alert('This map needs a start position.');
         return null;
       }
-      players.push({ name: 'The Horde', faction: this.faction === 'vanguard' ? 'ember' : 'vanguard', color: TEAM_COLORS[(this.color + 1) % TEAM_COLORS.length], team: 1, human: false, difficulty: 'insane', horde: true });
+      players.push({
+        name: 'The Horde',
+        faction: this.faction === 'vanguard' ? 'ember' : 'vanguard',
+        color: TEAM_COLORS[(this.color + 1) % TEAM_COLORS.length],
+        team: 1,
+        human: false,
+        difficulty: 'insane',
+        horde: true,
+      });
       return {
         map: m.clone(),
         config: { players, mania: this.mania, fog: this.fog, startCredits: this.credits, seed: randomSeed(), shuffleStarts: this.shuffle, mode: 'onslaught' },
@@ -463,7 +524,14 @@ export class SetupScreen {
     }
     this.opponents.forEach((o, i) => {
       const team = this.teamMode === 'vsYou' ? 1 : this.teamMode === 'allied' && i === 0 ? 0 : i + 1;
-      players.push({ name: AI_NAMES[i], faction: o.faction, color: TEAM_COLORS[(this.color + i + 1) % TEAM_COLORS.length], team, human: false, difficulty: o.difficulty });
+      players.push({
+        name: AI_NAMES[i],
+        faction: o.faction,
+        color: TEAM_COLORS[(this.color + i + 1) % TEAM_COLORS.length],
+        team,
+        human: false,
+        difficulty: o.difficulty,
+      });
     });
     if (this.teamMode === 'allied' && players.every((p) => p.team === 0)) players[players.length - 1].team = 1;
     return {

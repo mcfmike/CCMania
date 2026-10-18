@@ -80,11 +80,12 @@ export function mapFromImageData(img: ImageData, name: string): GameMap {
   // Bases need room: clear a pad around each start.
   for (const s of m.starts)
     for (let dy = -2; dy <= 2; dy++)
-      for (let dx = -2; dx <= 2; dx++) if (m.inBounds(s.x + dx, s.y + dy)) {
-        const k = m.idx(s.x + dx, s.y + dy);
-        if (m.terrain[k] !== T.Concrete) m.terrain[k] = T.Dirt;
-        m.ore[k] = 0;
-      }
+      for (let dx = -2; dx <= 2; dx++)
+        if (m.inBounds(s.x + dx, s.y + dy)) {
+          const k = m.idx(s.x + dx, s.y + dy);
+          if (m.terrain[k] !== T.Concrete) m.terrain[k] = T.Dirt;
+          m.ore[k] = 0;
+        }
   return m;
 }
 

@@ -51,8 +51,13 @@ export class EditorScreen {
   private props!: { name: HTMLInputElement; author: HTMLInputElement; desc: HTMLTextAreaElement };
   private toolPanel: HTMLElement;
   private mini: HTMLCanvasElement;
+  private abort = new AbortController();
 
-  constructor(host: HTMLElement, private actions: EditorActions, initial?: GameMap) {
+  constructor(
+    host: HTMLElement,
+    private actions: EditorActions,
+    initial?: GameMap,
+  ) {
     this.map = initial ?? generateMap({ ...DEFAULT_GEN, seed: randomSeed() });
     this.root = el('div', { class: 'editor-screen' });
     this.canvas = el('canvas', { class: 'editor-canvas' }) as HTMLCanvasElement;
@@ -78,8 +83,7 @@ export class EditorScreen {
 
   destroy(): void {
     cancelAnimationFrame(this.raf);
-    window.removeEventListener('resize', this.onResize);
-    window.removeEventListener('keydown', this.onKey);
+    this.abort.abort();
     this.root.remove();
   }
 
@@ -172,10 +176,14 @@ export class EditorScreen {
     const refreshSaved = () => {
       savedList.innerHTML = '';
       for (const s of listStoredMaps()) {
-        const open = btn(s.name, () => {
-          this.load(parseMapJson(s.json));
-          this.flash(`Loaded ${s.name}`);
-        }, 'link');
+        const open = btn(
+          s.name,
+          () => {
+            this.load(parseMapJson(s.json));
+            this.flash(`Loaded ${s.name}`);
+          },
+          'link',
+        );
         const del = btn('✕', () => {
           if (confirm(`Delete "${s.name}"?`)) {
             deleteStoredMap(s.name);
@@ -223,7 +231,13 @@ export class EditorScreen {
         fileIn,
       ),
       el('h3', {}, 'New / generate'),
-      el('div', { class: 'row tight' }, newSize, newFill, btn('New blank', () => this.newBlank(Number(newSize.value), Number(newFill.value) as T))),
+      el(
+        'div',
+        { class: 'row tight' },
+        newSize,
+        newFill,
+        btn('New blank', () => this.newBlank(Number(newSize.value), Number(newFill.value) as T)),
+      ),
       genPanel,
       el('h3', {}, 'Saved in browser'),
       savedList,
@@ -477,7 +491,13 @@ export class EditorScreen {
       const isB = !!BUILDINGS[this.entityType];
       imgs.forEach((c, k) => {
         const owner = Math.min(3, this.entityOwner + k);
-        m.entities.push({ kind: isB ? 'building' : 'unit', type: this.entityType, owner, x: isB ? c.x - Math.floor(BUILDINGS[this.entityType].w / 2) : c.x, y: isB ? c.y - Math.floor(BUILDINGS[this.entityType].h / 2) : c.y });
+        m.entities.push({
+          kind: isB ? 'building' : 'unit',
+          type: this.entityType,
+          owner,
+          x: isB ? c.x - Math.floor(BUILDINGS[this.entityType].w / 2) : c.x,
+          y: isB ? c.y - Math.floor(BUILDINGS[this.entityType].h / 2) : c.y,
+        });
       });
     } else if (this.tool === 'erase') {
       for (const c of imgs) {
@@ -560,23 +580,27 @@ export class EditorScreen {
 
   private bind(): void {
     const c = this.canvas;
-    window.addEventListener('resize', this.onResize);
-    window.addEventListener('keydown', this.onKey);
-    c.addEventListener('contextmenu', (e) => e.preventDefault());
-    c.addEventListener('mouseenter', () => (this.mouse.inside = true));
-    c.addEventListener('mouseleave', () => (this.mouse.inside = false));
-    c.addEventListener('wheel', (ev) => {
-      ev.preventDefault();
-      const r = c.getBoundingClientRect();
-      const sx = ev.clientX - r.left;
-      const sy = ev.clientY - r.top;
-      const wx = this.cam.x + sx / this.cam.zoom;
-      const wy = this.cam.y + sy / this.cam.zoom;
-      this.cam.zoom = Math.max(0.2, Math.min(2.5, this.cam.zoom * (ev.deltaY < 0 ? 1.15 : 1 / 1.15)));
-      this.cam.x = wx - sx / this.cam.zoom;
-      this.cam.y = wy - sy / this.cam.zoom;
-      this.clampCam();
-    }, { passive: false });
+    window.addEventListener('resize', this.onResize, { signal: this.abort.signal });
+    window.addEventListener('keydown', this.onKey, { signal: this.abort.signal });
+    c.addEventListener('contextmenu', (e) => e.preventDefault(), { signal: this.abort.signal });
+    c.addEventListener('mouseenter', () => (this.mouse.inside = true), { signal: this.abort.signal });
+    c.addEventListener('mouseleave', () => (this.mouse.inside = false), { signal: this.abort.signal });
+    c.addEventListener(
+      'wheel',
+      (ev) => {
+        ev.preventDefault();
+        const r = c.getBoundingClientRect();
+        const sx = ev.clientX - r.left;
+        const sy = ev.clientY - r.top;
+        const wx = this.cam.x + sx / this.cam.zoom;
+        const wy = this.cam.y + sy / this.cam.zoom;
+        this.cam.zoom = Math.max(0.2, Math.min(2.5, this.cam.zoom * (ev.deltaY < 0 ? 1.15 : 1 / 1.15)));
+        this.cam.x = wx - sx / this.cam.zoom;
+        this.cam.y = wy - sy / this.cam.zoom;
+        this.clampCam();
+      },
+      { passive: false, signal: this.abort.signal },
+    );
     c.addEventListener('mousedown', (ev) => {
       if (ev.button === 2 || ev.button === 1) {
         this.panning = { sx: ev.clientX, sy: ev.clientY, cx: this.cam.x, cy: this.cam.y };
@@ -592,30 +616,38 @@ export class EditorScreen {
       } else if (this.tool === 'fill') this.fillAt(cell.x, cell.y);
       else this.clickObject(cell.x, cell.y);
     });
-    window.addEventListener('mousemove', (ev) => {
-      const r = c.getBoundingClientRect();
-      this.mouse.x = ev.clientX - r.left;
-      this.mouse.y = ev.clientY - r.top;
-      if (this.panning) {
-        this.cam.x = this.panning.cx - (ev.clientX - this.panning.sx) / this.cam.zoom;
-        this.cam.y = this.panning.cy - (ev.clientY - this.panning.sy) / this.cam.zoom;
-        this.clampCam();
-      }
-      if (this.painting && this.lastCell) {
-        const cell = this.toCell(ev);
-        const steps = Math.max(Math.abs(cell.x - this.lastCell.x), Math.abs(cell.y - this.lastCell.y));
-        for (let i = 1; i <= steps; i++) {
-          const t = i / steps;
-          this.paintAt(Math.round(this.lastCell.x + (cell.x - this.lastCell.x) * t), Math.round(this.lastCell.y + (cell.y - this.lastCell.y) * t));
+    window.addEventListener(
+      'mousemove',
+      (ev) => {
+        const r = c.getBoundingClientRect();
+        this.mouse.x = ev.clientX - r.left;
+        this.mouse.y = ev.clientY - r.top;
+        if (this.panning) {
+          this.cam.x = this.panning.cx - (ev.clientX - this.panning.sx) / this.cam.zoom;
+          this.cam.y = this.panning.cy - (ev.clientY - this.panning.sy) / this.cam.zoom;
+          this.clampCam();
         }
-        this.lastCell = cell;
-      }
-    });
-    window.addEventListener('mouseup', () => {
-      this.painting = false;
-      this.panning = null;
-      this.lastCell = null;
-    });
+        if (this.painting && this.lastCell) {
+          const cell = this.toCell(ev);
+          const steps = Math.max(Math.abs(cell.x - this.lastCell.x), Math.abs(cell.y - this.lastCell.y));
+          for (let i = 1; i <= steps; i++) {
+            const t = i / steps;
+            this.paintAt(Math.round(this.lastCell.x + (cell.x - this.lastCell.x) * t), Math.round(this.lastCell.y + (cell.y - this.lastCell.y) * t));
+          }
+          this.lastCell = cell;
+        }
+      },
+      { signal: this.abort.signal },
+    );
+    window.addEventListener(
+      'mouseup',
+      () => {
+        this.painting = false;
+        this.panning = null;
+        this.lastCell = null;
+      },
+      { signal: this.abort.signal },
+    );
     this.mini.addEventListener('mousedown', (ev) => {
       const r = this.mini.getBoundingClientRect();
       const s = Math.min(this.mini.width / this.map.w, this.mini.height / this.map.h);
@@ -783,5 +815,10 @@ export class EditorScreen {
 }
 
 function slug(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'map';
+  return (
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '') || 'map'
+  );
 }

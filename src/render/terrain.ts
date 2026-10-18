@@ -326,7 +326,7 @@ export class TerrainRenderer {
     }
     if (d.kind === 'rubble') {
       let s = Math.floor(d.x * 7 + d.y * 13);
-      const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+      const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
       for (let i = 0; i < d.size * 14; i++) {
         const a = rnd() * Math.PI * 2;
         const dist = rnd() * r * 0.9;

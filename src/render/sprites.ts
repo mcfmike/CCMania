@@ -719,7 +719,7 @@ export function oreSprites(): HTMLCanvasElement[][] {
     for (let v = 0; v < 4; v++) {
       const [cv, c] = canvas(TILE, TILE);
       let seed = lvl * 31 + v * 7 + 1;
-      const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+      const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
       const n = 2 + lvl * 2;
       for (let i = 0; i < n; i++) {
         const x = 5 + rnd() * 22;

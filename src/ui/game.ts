@@ -45,6 +45,7 @@ export class GameScreen {
   private lastAlert: { x: number; y: number } | null = null;
   private miniBase: HTMLCanvasElement;
   private intensityAcc = 0;
+  private abort = new AbortController();
   private ui!: {
     credits: HTMLElement;
     powerFill: HTMLElement;
@@ -106,9 +107,7 @@ export class GameScreen {
   destroy(): void {
     this.running = false;
     cancelAnimationFrame(this.raf);
-    window.removeEventListener('keydown', this.onKeyDown);
-    window.removeEventListener('keyup', this.onKeyUp);
-    window.removeEventListener('resize', this.onResize);
+    this.abort.abort();
     this.root.remove();
   }
 
@@ -504,8 +503,8 @@ export class GameScreen {
       const p = this.minimapToWorld(ev);
       this.renderer.centerOn(p.x, p.y);
     });
-    window.addEventListener('mouseup', () => (down = false));
-    c.addEventListener('contextmenu', (ev) => ev.preventDefault());
+    window.addEventListener('mouseup', () => (down = false), { signal: this.abort.signal });
+    c.addEventListener('contextmenu', (ev) => ev.preventDefault(), { signal: this.abort.signal });
   }
 
   // ---------------------------------------------------------------- pause / end
@@ -530,8 +529,16 @@ export class GameScreen {
       };
       sliders.append(el('label', {}, label, input));
     };
-    slider('Effects', () => s.sfx, (v) => (s.sfx = v));
-    slider('Music', () => s.music, (v) => (s.music = v));
+    slider(
+      'Effects',
+      () => s.sfx,
+      (v) => (s.sfx = v),
+    );
+    slider(
+      'Music',
+      () => s.music,
+      (v) => (s.music = v),
+    );
     const voice = el('input', { type: 'checkbox' }) as HTMLInputElement;
     voice.checked = s.voice;
     voice.onchange = () => (s.voice = voice.checked);
@@ -579,7 +586,13 @@ export class GameScreen {
     const menu = el('button', { class: 'btn' }, 'Main menu');
     menu.onclick = () => this.opts.onExit();
     const survived = w.onslaught ? el('div', { class: 'survived' }, `You survived ${Math.max(0, w.onslaught.wave - 1)} waves`) : el('div');
-    panel.append(el('h1', {}, win ? 'MISSION ACCOMPLISHED' : 'MISSION FAILED'), survived, el('div', { class: 'muted' }, `Battle time ${mins}:${String(secs).padStart(2, '0')}`), table, el('div', { class: 'row' }, again, watch, menu));
+    panel.append(
+      el('h1', {}, win ? 'MISSION ACCOMPLISHED' : 'MISSION FAILED'),
+      survived,
+      el('div', { class: 'muted' }, `Battle time ${mins}:${String(secs).padStart(2, '0')}`),
+      table,
+      el('div', { class: 'row' }, again, watch, menu),
+    );
     o.appendChild(panel);
     o.classList.remove('hidden');
   }
@@ -701,52 +714,68 @@ export class GameScreen {
 
   private bindInput(): void {
     const c = this.canvas;
-    window.addEventListener('keydown', this.onKeyDown);
-    window.addEventListener('keyup', this.onKeyUp);
-    window.addEventListener('resize', this.onResize);
-    c.addEventListener('contextmenu', (ev) => ev.preventDefault());
-    c.addEventListener('mouseenter', () => (this.mouseScreen.inside = true));
-    c.addEventListener('mouseleave', () => (this.mouseScreen.inside = false));
-    c.addEventListener('wheel', (ev) => {
-      ev.preventDefault();
-      const r = c.getBoundingClientRect();
-      this.renderer.zoomAt(ev.clientX - r.left, ev.clientY - r.top, ev.deltaY < 0 ? 1.12 : 1 / 1.12);
-    }, { passive: false });
-    c.addEventListener('mousedown', (ev) => {
-      this.audio.init();
-      this.audio.startMusic();
-      const p = this.toWorld(ev);
-      this.drag = { button: ev.button, sx: ev.clientX, sy: ev.clientY, wx: p.x, wy: p.y, moved: false, camX: this.renderer.cam.x, camY: this.renderer.cam.y };
-      if (ev.button === 0) this.leftDown(p.x, p.y, ev);
-    });
-    window.addEventListener('mousemove', (ev) => {
-      const r = c.getBoundingClientRect();
-      this.mouseScreen.x = ev.clientX - r.left;
-      this.mouseScreen.y = ev.clientY - r.top;
-      const p = this.renderer.screenToWorld(this.mouseScreen.x, this.mouseScreen.y);
-      this.view.mouse = p;
-      const d = this.drag;
-      if (d) {
-        if (Math.hypot(ev.clientX - d.sx, ev.clientY - d.sy) > 6) d.moved = true;
-        if ((d.button === 2 || d.button === 1) && d.moved) {
-          const z = this.renderer.cam.zoom;
-          this.renderer.cam.x = d.camX - (ev.clientX - d.sx) / z;
-          this.renderer.cam.y = d.camY - (ev.clientY - d.sy) / z;
-          this.renderer.clampCam();
+    window.addEventListener('keydown', this.onKeyDown, { signal: this.abort.signal });
+    window.addEventListener('keyup', this.onKeyUp, { signal: this.abort.signal });
+    window.addEventListener('resize', this.onResize, { signal: this.abort.signal });
+    c.addEventListener('contextmenu', (ev) => ev.preventDefault(), { signal: this.abort.signal });
+    c.addEventListener('mouseenter', () => (this.mouseScreen.inside = true), { signal: this.abort.signal });
+    c.addEventListener('mouseleave', () => (this.mouseScreen.inside = false), { signal: this.abort.signal });
+    c.addEventListener(
+      'wheel',
+      (ev) => {
+        ev.preventDefault();
+        const r = c.getBoundingClientRect();
+        this.renderer.zoomAt(ev.clientX - r.left, ev.clientY - r.top, ev.deltaY < 0 ? 1.12 : 1 / 1.12);
+      },
+      { passive: false, signal: this.abort.signal },
+    );
+    c.addEventListener(
+      'mousedown',
+      (ev) => {
+        this.audio.init();
+        this.audio.startMusic();
+        const p = this.toWorld(ev);
+        this.drag = { button: ev.button, sx: ev.clientX, sy: ev.clientY, wx: p.x, wy: p.y, moved: false, camX: this.renderer.cam.x, camY: this.renderer.cam.y };
+        if (ev.button === 0) this.leftDown(p.x, p.y, ev);
+      },
+      { signal: this.abort.signal },
+    );
+    window.addEventListener(
+      'mousemove',
+      (ev) => {
+        const r = c.getBoundingClientRect();
+        this.mouseScreen.x = ev.clientX - r.left;
+        this.mouseScreen.y = ev.clientY - r.top;
+        const p = this.renderer.screenToWorld(this.mouseScreen.x, this.mouseScreen.y);
+        this.view.mouse = p;
+        const d = this.drag;
+        if (d) {
+          if (Math.hypot(ev.clientX - d.sx, ev.clientY - d.sy) > 6) d.moved = true;
+          if ((d.button === 2 || d.button === 1) && d.moved) {
+            const z = this.renderer.cam.zoom;
+            this.renderer.cam.x = d.camX - (ev.clientX - d.sx) / z;
+            this.renderer.cam.y = d.camY - (ev.clientY - d.sy) / z;
+            this.renderer.clampCam();
+          }
+          if (d.button === 0 && d.moved && this.mode === 'normal') this.view.dragBox = { x0: d.wx, y0: d.wy, x1: p.x, y1: p.y };
         }
-        if (d.button === 0 && d.moved && this.mode === 'normal') this.view.dragBox = { x0: d.wx, y0: d.wy, x1: p.x, y1: p.y };
-      }
-      this.updatePlacement();
-    });
-    window.addEventListener('mouseup', (ev) => {
-      const d = this.drag;
-      this.drag = null;
-      if (!d || d.button !== ev.button) return;
-      if (!this.root.isConnected) return;
-      const p = this.renderer.screenToWorld(this.mouseScreen.x, this.mouseScreen.y);
-      if (ev.button === 0) this.leftUp(p.x, p.y, d.moved, ev);
-      else if (ev.button === 2 && !d.moved && ev.target === c) this.rightClick(p.x, p.y);
-    });
+        this.updatePlacement();
+      },
+      { signal: this.abort.signal },
+    );
+    window.addEventListener(
+      'mouseup',
+      (ev) => {
+        const d = this.drag;
+        this.drag = null;
+        if (!d || d.button !== ev.button) return;
+        if (!this.root.isConnected) return;
+        const p = this.renderer.screenToWorld(this.mouseScreen.x, this.mouseScreen.y);
+        if (ev.button === 0) this.leftUp(p.x, p.y, d.moved, ev);
+        else if (ev.button === 2 && !d.moved && ev.target === c) this.rightClick(p.x, p.y);
+      },
+      { signal: this.abort.signal },
+    );
   }
 
   private toWorld(ev: MouseEvent): { x: number; y: number } {
@@ -919,9 +948,20 @@ export class GameScreen {
       const cy = Math.floor(y / TILE);
       const onOre = w.map.inBounds(cx, cy) && w.map.ore[w.map.idx(cx, cy)] > 0;
       const harvesters = units.filter((u) => u.u.harvester);
-      if (onOre && harvesters.length) w.commandHarvest(harvesters.map((u) => u.id), x, y);
+      if (onOre && harvesters.length)
+        w.commandHarvest(
+          harvesters.map((u) => u.id),
+          x,
+          y,
+        );
       const others = onOre ? units.filter((u) => !u.u.harvester) : units;
-      if (others.length) w.commandMove(others.map((u) => u.id), x, y, 'move');
+      if (others.length)
+        w.commandMove(
+          others.map((u) => u.id),
+          x,
+          y,
+          'move',
+        );
       this.renderer.marker(x, y, '#7dff7d');
     }
     this.audio.play('ack');
@@ -939,7 +979,11 @@ export class GameScreen {
     const y0 = r.cam.y;
     const x1 = x0 + r.vw / r.cam.zoom;
     const y1 = y0 + r.vh / r.cam.zoom;
-    this.view.selected = new Set(this.world.units.filter((u) => !u.dead && u.owner === this.world.humanIndex && u.type === t && u.x >= x0 && u.x <= x1 && u.y >= y0 && u.y <= y1).map((u) => u.id));
+    this.view.selected = new Set(
+      this.world.units
+        .filter((u) => !u.dead && u.owner === this.world.humanIndex && u.type === t && u.x >= x0 && u.x <= x1 && u.y >= y0 && u.y <= y1)
+        .map((u) => u.id),
+    );
   }
 
   private edgeScroll(dt: number): void {

@@ -85,7 +85,10 @@ export class AudioEngine {
     const g = c.createGain();
     g.gain.setValueAtTime(gain, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    src.connect(flt).connect(g).connect(dest ?? this.sfxBus);
+    src
+      .connect(flt)
+      .connect(g)
+      .connect(dest ?? this.sfxBus);
     src.start(t, Math.random());
     src.stop(t + dur + 0.05);
   }
