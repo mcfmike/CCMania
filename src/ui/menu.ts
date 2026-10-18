@@ -180,6 +180,7 @@ export class SetupScreen {
   private sourcePanel: HTMLElement;
   private oppPanel: HTMLElement;
   private mapInfo: HTMLElement;
+  private noticeEl = el('div', { class: 'notice hidden' });
 
   constructor(host: HTMLElement, actions: { start: (r: SetupResult) => void; back: () => void }) {
     this.root = el('div', { class: 'setup-screen' });
@@ -281,6 +282,7 @@ export class SetupScreen {
         el('div', { class: 'panel' }, el('h3', {}, 'Commanders'), options, (this.oppSection = el('div', {}, el('h3', {}, 'Opponents'), this.oppPanel))),
       ),
       el('div', { class: 'row' }, back, start),
+      this.noticeEl,
     );
     host.appendChild(this.root);
     this.renderSource();
@@ -394,7 +396,7 @@ export class SetupScreen {
           this.fileMap = r.image ? mapFromImageData(r.image, f.name.replace(/\.[^.]+$/, '')) : parseMapJson(r.text!);
           this.rebuildMap();
         } catch (e) {
-          alert(`Could not load map: ${(e as Error).message}`);
+          this.notice(`Could not load map: ${(e as Error).message}`);
         }
       };
       p.append(
@@ -408,6 +410,15 @@ export class SetupScreen {
     }
   }
 
+  private notice(text: string): void {
+    this.noticeEl.textContent = text;
+    this.noticeEl.classList.remove('hidden');
+    clearTimeout(this.noticeTimer);
+    this.noticeTimer = window.setTimeout(() => this.noticeEl.classList.add('hidden'), 6000);
+  }
+
+  private noticeTimer = 0;
+
   private rebuildMap(): void {
     try {
       if (this.source === 'builtin') this.map = BUILTINS[this.builtin].make();
@@ -417,7 +428,7 @@ export class SetupScreen {
         if (maps.length) this.map = parseMapJson(maps[Math.min(this.saved, maps.length - 1)].json);
       } else if (this.fileMap) this.map = this.fileMap;
     } catch (e) {
-      alert(`Map error: ${(e as Error).message}`);
+      this.notice(`Map error: ${(e as Error).message}`);
     }
     this.drawPreview();
     const maxOpp = Math.max(1, this.map.starts.length - 1);
@@ -501,7 +512,7 @@ export class SetupScreen {
     const players: PlayerConfig[] = [{ name: 'You', faction: this.faction, color: TEAM_COLORS[this.color], team: 0, human: true, difficulty: 'normal' }];
     if (this.mode === 'onslaught') {
       if (m.starts.length < 1) {
-        alert('This map needs a start position.');
+        this.notice('This map needs a start position. Add one with the 🚩 tool in the Map Editor.');
         return null;
       }
       players.push({
@@ -519,7 +530,7 @@ export class SetupScreen {
       };
     }
     if (m.starts.length < 2) {
-      alert('This map needs at least 2 start positions.');
+      this.notice('This map needs at least 2 start positions for a skirmish. Try Onslaught mode, or add starts in the Map Editor.');
       return null;
     }
     this.opponents.forEach((o, i) => {

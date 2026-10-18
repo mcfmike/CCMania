@@ -169,7 +169,7 @@ export class EditorScreen {
         this.load(r.image ? mapFromImageData(r.image, f.name.replace(/\.[^.]+$/, '')) : parseMapJson(r.text!));
         this.flash(`Imported ${f.name}`);
       } catch (e) {
-        alert(`Import failed: ${(e as Error).message}`);
+        this.flash(`Import failed: ${(e as Error).message}`);
       }
     };
     const savedList = el('div', { class: 'saved-list' });
@@ -184,10 +184,18 @@ export class EditorScreen {
           },
           'link',
         );
+        // Two-click delete: the first click arms the button.
         const del = btn('✕', () => {
-          if (confirm(`Delete "${s.name}"?`)) {
+          if (del.dataset.armed) {
             deleteStoredMap(s.name);
             refreshSaved();
+          } else {
+            del.dataset.armed = '1';
+            del.textContent = 'Delete?';
+            setTimeout(() => {
+              delete del.dataset.armed;
+              del.textContent = '✕';
+            }, 3000);
           }
         });
         savedList.appendChild(el('div', { class: 'saved-row' }, open, del));
@@ -224,9 +232,9 @@ export class EditorScreen {
         }),
         btn('⬇ JSON', () => {
           this.syncProps();
-          download(`${slug(this.map.name)}.json`, new Blob([mapToJson(this.map)], { type: 'application/json' }));
+          this.showExport('json');
         }),
-        btn('⬇ PNG', () => this.exportPng()),
+        btn('⬇ PNG', () => this.showExport('png')),
         btn('⬆ Import', () => fileIn.click()),
         fileIn,
       ),
@@ -517,17 +525,61 @@ export class EditorScreen {
   private playTest(): void {
     this.syncProps();
     if (this.map.starts.length < 2) {
-      alert('Place at least 2 start positions (🚩 tool) before play-testing.');
+      this.flash('Place at least 2 start positions (🚩 tool) before play-testing.');
       return;
     }
     this.actions.play(this.map.clone());
   }
 
-  private exportPng(): void {
-    const img = mapToImageData(this.map);
-    const [c, ctx] = canvas(this.map.w, this.map.h);
-    ctx.putImageData(img, 0, 0);
-    c.toBlob((b) => b && download(`${slug(this.map.name)}.png`, b), 'image/png');
+  /**
+   * Export panel. Downloads can be blocked (e.g. inside an embedded frame), so the
+   * JSON is also shown as copyable text and the PNG as an image you can save directly.
+   */
+  private showExport(kind: 'json' | 'png'): void {
+    const overlay = el('div', { class: 'overlay' });
+    const panel = el('div', { class: 'panel export-panel' });
+    const close = el('button', { class: 'btn small' }, 'Close');
+    close.onclick = () => overlay.remove();
+    const dl = el('button', { class: 'btn small' }, '⬇ Download file');
+    // Embedded frames (e.g. a published artifact) block downloads, so only offer copy / save-image there.
+    if (window.self !== window.top) dl.classList.add('hidden');
+    const status = el('div', { class: 'muted small' });
+    if (kind === 'json') {
+      const json = mapToJson(this.map);
+      const text = el('textarea', { rows: '12', readonly: '', class: 'export-text' }) as HTMLTextAreaElement;
+      text.value = json;
+      const copy = el('button', { class: 'btn small primary' }, '📋 Copy JSON');
+      const selectFallback = () => {
+        text.select();
+        status.textContent = 'Copy is blocked here, so the text is selected: press Ctrl+C.';
+      };
+      copy.onclick = () => {
+        if (!navigator.clipboard) return selectFallback();
+        navigator.clipboard
+          .writeText(json)
+          .then(() => (status.textContent = 'Copied. Save it as a .json file, or drop it into /maps in the repo.'), selectFallback);
+      };
+      dl.onclick = () => download(`${slug(this.map.name)}.json`, new Blob([json], { type: 'application/json' }));
+      panel.append(el('h3', {}, 'Export map JSON'), text, el('div', { class: 'row tight' }, copy, dl, close), status);
+    } else {
+      const [c, ctx] = canvas(this.map.w, this.map.h);
+      ctx.putImageData(mapToImageData(this.map), 0, 0);
+      const img = el('img', { class: 'export-img', alt: `${this.map.name} as a 1-pixel-per-tile PNG`, src: c.toDataURL('image/png') });
+      dl.onclick = () => c.toBlob((b) => b && download(`${slug(this.map.name)}.png`, b), 'image/png');
+      panel.append(
+        el('h3', {}, 'Export map PNG'),
+        img,
+        el(
+          'div',
+          { class: 'muted small' },
+          'One pixel per tile. Right-click or long-press the image to save it, then edit it in any paint program and import it back.',
+        ),
+        el('div', { class: 'row tight' }, dl, close),
+      );
+    }
+    overlay.appendChild(panel);
+    overlay.onclick = (ev) => ev.target === overlay && overlay.remove();
+    this.root.appendChild(overlay);
   }
 
   private flash(text: string): void {
