@@ -237,10 +237,15 @@ export class Renderer {
     }
   }
 
+  private onScreen(x: number, y: number, pad = 200): boolean {
+    const z = this.cam.zoom;
+    return x > this.cam.x - pad && y > this.cam.y - pad && x < this.cam.x + this.vw / z + pad && y < this.cam.y + this.vh / z + pad;
+  }
+
   private nukeBlast(x: number, y: number): void {
     const p = this.particles;
     const r = Math.random;
-    this.flash = 1;
+    if (this.onScreen(x, y, 600)) this.flash = 1;
     p.spawn(Sprite.Flash, x, y, { size: 900, life: 0.9 });
     for (let k = 0; k < 4; k++) p.ring({ x, y, r0: 10, r1: 260 + k * 90, max: 1 + k * 0.4, color: k % 2 ? 'rgba(255,240,200,0.9)' : 'rgba(255,140,60,0.9)', width: 10 });
     for (let i = 0; i < 180; i++) {
@@ -267,7 +272,7 @@ export class Renderer {
   private ionBlast(x: number, y: number): void {
     const p = this.particles;
     const r = Math.random;
-    this.flash = Math.max(this.flash, 0.5);
+    if (this.onScreen(x, y)) this.flash = Math.max(this.flash, 0.5);
     p.spawn(Sprite.Cyan, x, y, { size: 400, life: 0.6 });
     for (let k = 0; k < 3; k++) p.ring({ x, y, r0: 10, r1: 140 + k * 60, max: 0.8 + k * 0.3, color: 'rgba(140,240,255,0.9)', width: 8 });
     for (let i = 0; i < 120; i++) {
@@ -307,8 +312,8 @@ export class Renderer {
     this.drawEntities(ctx, view, x0, y0, x1, y1, dt);
     this.drawProjectiles(ctx, dt);
     this.particles.draw(ctx, x0, y0, x1, y1);
-    this.drawSpecials(ctx);
     this.drawShroud(ctx);
+    this.drawSpecials(ctx);
     this.drawOverlays(ctx, view);
 
     if (this.flash > 0) {

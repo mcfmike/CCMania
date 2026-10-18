@@ -91,6 +91,7 @@ function centered(size: number, draw: (c: Ctx) => void): HTMLCanvasElement {
 }
 
 function drawInfantry(c: Ctx, color: string, type: string, frame: number): void {
+  c.scale(1.35, 1.35);
   const leg = frame === 0 ? 2 : frame === 1 ? -2 : 0;
   c.fillStyle = '#2b2b26';
   c.fillRect(-2 + leg, -3, 3, 2);
@@ -143,8 +144,8 @@ export function unitSprite(type: string, color: string): UnitSprite {
   const size = Math.ceil(def.radius * 2.9);
   let s: UnitSprite;
   if (def.cls === 'infantry') {
-    const frames = [0, 1, 2].map((f) => centered(size + 6, (c) => drawInfantry(c, color, type, f)));
-    s = { body: frames, turret: null, size: size + 6 };
+    const frames = [0, 1, 2].map((f) => centered(size + 10, (c) => drawInfantry(c, color, type, f)));
+    s = { body: frames, turret: null, size: size + 10 };
   } else {
     let turret: HTMLCanvasElement | null = null;
     const body = centered(size, (c) => {

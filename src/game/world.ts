@@ -1,4 +1,5 @@
 import { AI } from './ai';
+import { Onslaught } from './onslaught';
 import { DT, PassClass, TICK_RATE, TILE } from './constants';
 import {
   ARMOR_INDEX,
@@ -24,6 +25,8 @@ export interface GameConfig {
   startCredits: number;
   seed: number;
   shuffleStarts: boolean;
+  /** 'onslaught' = survive endless waves against a base-less horde. */
+  mode?: 'skirmish' | 'onslaught';
 }
 
 export interface Projectile {
@@ -93,6 +96,9 @@ export class World {
   humanIndex = -1;
   result: GameResult = 'playing';
   ais: AI[] = [];
+  onslaught: Onslaught | null = null;
+  /** Set when the game ends so the player can spectate the whole map. */
+  revealAll = false;
   /** Which map start each player was given. */
   startOf: number[] = [];
   private timers: { at: number; fn: () => void }[] = [];
@@ -115,7 +121,8 @@ export class World {
 
   private setup(): void {
     const starts = this.map.starts;
-    if (starts.length < this.players.length) throw new Error(`Map has ${starts.length} start positions but ${this.players.length} players`);
+    const based = this.players.filter((p) => !p.cfg.horde);
+    if (starts.length < based.length) throw new Error(`Map has ${starts.length} start positions but ${based.length} players`);
     const order = starts.map((_, i) => i).slice(0, Math.max(starts.length, this.players.length));
     if (this.cfg.shuffleStarts) {
       for (let i = order.length - 1; i > 0; i--) {
@@ -123,9 +130,14 @@ export class World {
         [order[i], order[j]] = [order[j], order[i]];
       }
     }
-    this.startOf = this.players.map((_, i) => order[i]);
+    let next = 0;
+    this.startOf = this.players.map((p) => (p.cfg.horde ? -1 : order[next++]));
 
     for (const p of this.players) {
+      if (p.cfg.horde) {
+        this.onslaught = new Onslaught(this, p);
+        continue;
+      }
       const d = DIFFICULTY[p.cfg.difficulty];
       if (!p.human) {
         p.buildSpeed = d.build;
@@ -566,6 +578,7 @@ export class World {
     p.superReady = false;
     p.superCharge = 0;
     const type = p.superType;
+    this.reveal(p, x, y, 7);
     for (const other of this.players) {
       if (!other.human) continue;
       if (other.index === p.index) this.eva(other.index, 'superfire', type === 'ion' ? 'Ion cannon activated' : 'Nuclear missile launched', 1);
@@ -600,6 +613,21 @@ export class World {
       });
     }
     return true;
+  }
+
+  /** Permanently uncover the shroud around a point for a player's team. */
+  reveal(p: Player, x: number, y: number, r: number): void {
+    const cx = Math.floor(x / TILE);
+    const cy = Math.floor(y / TILE);
+    for (const q of this.players) {
+      if (q.team !== p.team) continue;
+      const offs = circleOffsets(r);
+      for (let i = 0; i < offs.length; i += 2) {
+        const tx = cx + offs[i];
+        const ty = cy + offs[i + 1];
+        if (this.map.inBounds(tx, ty)) q.explored[this.map.idx(tx, ty)] = 1;
+      }
+    }
   }
 
   /** Area damage that hurts everybody, friend or foe. */
@@ -761,6 +789,7 @@ export class World {
     if (this.tick % (this.cfg.mania ? 15 : 45) === 0) this.growOre();
     if (this.tick % 6 === 0) for (const p of this.players) if (p.human || this.tick % 30 === 0) this.updateVision(p);
     for (const ai of this.ais) if (!ai.player.defeated) ai.update();
+    this.onslaught?.update();
     if (this.tick % 30 === 0) this.checkDefeat();
   }
 
@@ -809,6 +838,11 @@ export class World {
 
   private updateVision(p: Player): void {
     const vis = p.visible;
+    if (this.revealAll) {
+      vis.fill(1);
+      p.explored.fill(1);
+      return;
+    }
     vis.fill(0);
     const { w, h } = this.map;
     for (const e of this.entities) {
@@ -831,7 +865,7 @@ export class World {
 
   private checkDefeat(): void {
     for (const p of this.players) {
-      if (p.defeated) continue;
+      if (p.defeated || p.cfg.horde) continue;
       const alive = this.buildings.some((b) => !b.dead && b.owner === p.index && !b.b.wall);
       if (alive) continue;
       p.defeated = true;
@@ -845,9 +879,11 @@ export class World {
     const me = this.players[this.humanIndex];
     if (me.defeated) {
       this.result = 'defeat';
+      this.revealAll = true;
       this.eva(me.index, 'lose', 'Mission failed', 0);
-    } else if (this.players.every((p) => p.defeated || p.team === me.team)) {
+    } else if (!this.onslaught && this.players.every((p) => p.defeated || p.team === me.team)) {
       this.result = 'victory';
+      this.revealAll = true;
       this.eva(me.index, 'win', 'Mission accomplished', 0);
     }
   }

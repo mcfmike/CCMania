@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { PassClass } from '../src/game/constants';
+import { parseMapJson } from '../src/game/mapio';
+import type { MapData } from '../src/game/map';
+import { buildField } from '../src/game/pathfinding';
 import { TICK_RATE } from '../src/game/constants';
 import { GameMap } from '../src/game/map';
 import { BUILTIN_MAPS, DEFAULT_GEN, generateMap } from '../src/game/mapgen';
@@ -66,4 +70,42 @@ describe('simulation', () => {
     }
     expect(w.units.length + w.buildings.length).toBeGreaterThan(0);
   }, 120_000);
+});
+
+describe('onslaught', () => {
+  it('spawns escalating waves until the idle player falls', () => {
+    const map = generateMap({ ...DEFAULT_GEN, seed: 3 });
+    const w = new World(map, {
+      players: [
+        { name: 'You', faction: 'vanguard', color: '#3d8bff', team: 0, human: true, difficulty: 'normal' },
+        { name: 'Horde', faction: 'ember', color: '#ff3b30', team: 1, human: false, difficulty: 'insane', horde: true },
+      ],
+      mania: false,
+      fog: true,
+      startCredits: 5000,
+      seed: 1,
+      shuffleStarts: false,
+      mode: 'onslaught',
+    });
+    for (let i = 0; i < 10 * 60 * TICK_RATE && w.result === 'playing'; i++) {
+      w.step();
+      w.events.length = 0;
+    }
+    expect(w.onslaught!.wave).toBeGreaterThan(1);
+    expect(w.result).toBe('defeat');
+  }, 60_000);
+});
+
+describe('hand-made maps in /maps', () => {
+  const files = Object.entries(import.meta.glob('../maps/*.json', { eager: true, import: 'default' }) as Record<string, MapData>);
+  it.each(files)('%s is valid and every start can reach every other', (_file, data) => {
+    const map = parseMapJson(JSON.stringify(data));
+    expect(map.starts.length).toBeGreaterThanOrEqual(2);
+    const field = buildField(map, [map.idx(map.starts[0].x, map.starts[0].y)], PassClass.Vehicle);
+    for (const s of map.starts) expect(field.cost[map.idx(s.x, s.y)]).toBeLessThan(Infinity);
+    // And the map can actually host a game.
+    const w = new World(map, aiConfig(map.starts.length));
+    for (let i = 0; i < 60 * TICK_RATE; i++) w.step();
+    expect(w.buildings.length).toBeGreaterThan(map.starts.length);
+  });
 });

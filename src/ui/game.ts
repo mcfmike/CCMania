@@ -62,6 +62,7 @@ export class GameScreen {
     speed: HTMLElement;
     sell: HTMLElement;
     repair: HTMLElement;
+    banner: HTMLElement;
   };
   private buttons = new Map<string, { btn: HTMLElement; clock: HTMLElement; badge: HTMLElement; label: HTMLElement }>();
 
@@ -80,6 +81,8 @@ export class GameScreen {
     this.buildSidebar();
     this.ui.messages = el('div', { class: 'messages' });
     viewEl.appendChild(this.ui.messages);
+    this.ui.banner = el('div', { class: `banner ${world.onslaught ? '' : 'hidden'}` });
+    viewEl.appendChild(this.ui.banner);
     this.ui.tooltip = el('div', { class: 'tooltip hidden' });
     this.root.appendChild(this.ui.tooltip);
     this.ui.pause = this.buildPause();
@@ -335,7 +338,7 @@ export class GameScreen {
     this.ui.powerFill.style.width = `${(out / maxP) * 100}%`;
     this.ui.powerUse.style.left = `${(use / maxP) * 100}%`;
     this.ui.powerFill.classList.toggle('low', me.lowPower);
-    this.ui.powerText.textContent = `Power ${use}/${out}`;
+    this.ui.powerText.textContent = `⚡ Power ${out}  ·  Drain ${use}`;
     this.ui.powerText.classList.toggle('low', me.lowPower);
     // Buttons
     for (const [id, b] of this.buttons) {
@@ -362,6 +365,13 @@ export class GameScreen {
       this.ui.superBtn.textContent = me.superReady ? `☢ ${name} READY` : `${name} ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
       this.ui.superBtn.style.backgroundSize = `${pct * 100}% 100%`;
     } else this.ui.superBtn.classList.add('hidden');
+    const os = w.onslaught;
+    if (os) {
+      const s = os.secondsToNext;
+      const boss = (os.wave + 1) % 5 === 0;
+      this.ui.banner.textContent = `WAVE ${os.wave}  ·  ${boss ? '☠ BOSS WAVE' : 'next wave'} in ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+      this.ui.banner.classList.toggle('urgent', s <= 10);
+    }
     this.ui.speed.textContent = `${SPEEDS[this.speedIdx]}x`;
     this.ui.sell.classList.toggle('on', this.mode === 'sell');
     this.ui.repair.classList.toggle('on', this.mode === 'repair');
@@ -568,7 +578,8 @@ export class GameScreen {
     again.onclick = () => this.opts.onRestart();
     const menu = el('button', { class: 'btn' }, 'Main menu');
     menu.onclick = () => this.opts.onExit();
-    panel.append(el('h1', {}, win ? 'MISSION ACCOMPLISHED' : 'MISSION FAILED'), el('div', { class: 'muted' }, `Battle time ${mins}:${String(secs).padStart(2, '0')}`), table, el('div', { class: 'row' }, again, watch, menu));
+    const survived = w.onslaught ? el('div', { class: 'survived' }, `You survived ${Math.max(0, w.onslaught.wave - 1)} waves`) : el('div');
+    panel.append(el('h1', {}, win ? 'MISSION ACCOMPLISHED' : 'MISSION FAILED'), survived, el('div', { class: 'muted' }, `Battle time ${mins}:${String(secs).padStart(2, '0')}`), table, el('div', { class: 'row' }, again, watch, menu));
     o.appendChild(panel);
     o.classList.remove('hidden');
   }

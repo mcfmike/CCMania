@@ -2,7 +2,7 @@ import type { AudioEngine } from '../audio/audio';
 import { TICK_RATE, TILE } from '../game/constants';
 import type { Difficulty, PlayerConfig } from '../game/entity';
 import type { Faction } from '../game/defs';
-import { GameMap } from '../game/map';
+import { GameMap, type MapData } from '../game/map';
 import { BUILTIN_MAPS, DEFAULT_GEN, generateMap, type GenParams, type Symmetry } from '../game/mapgen';
 import { listStoredMaps, mapFromImageData, parseMapJson, readFile } from '../game/mapio';
 import { randomSeed } from '../game/rng';
@@ -11,6 +11,14 @@ import { Renderer } from '../render/renderer';
 import { terrainOverview } from '../render/terrain';
 import { controlsHelp } from './game';
 import { el } from './dom';
+
+/** Any JSON map dropped into /maps shows up as a built-in map. */
+const FILE_MAPS = Object.values(import.meta.glob('../../maps/*.json', { eager: true, import: 'default' }) as Record<string, MapData>);
+
+const BUILTINS: { label: string; make: () => GameMap }[] = [
+  ...FILE_MAPS.map((d) => ({ label: `${d.name} (${d.starts.length}p, ${d.width}×${d.height}, hand-made)`, make: () => GameMap.fromData(d) })),
+  ...BUILTIN_MAPS.map((p) => ({ label: `${p.name} (${p.players}p, ${p.width}×${p.height})`, make: () => generateMap(p) })),
+];
 
 export const TEAM_COLORS = ['#3d8bff', '#ff3b30', '#ffb000', '#b04dff', '#2ee6a8', '#ff6ad5'];
 const AI_NAMES = ['General Kessler', 'Overlord Vex', 'Marshal Ironside', 'The Prophet', 'Commander Rook', 'Colonel Ash'];
@@ -155,6 +163,8 @@ export class SetupScreen {
   private mania = false;
   private fog = true;
   private shuffle = false;
+  private mode: 'skirmish' | 'onslaught' = 'skirmish';
+  private oppSection!: HTMLElement;
   private sourcePanel: HTMLElement;
   private oppPanel: HTMLElement;
   private mapInfo: HTMLElement;
@@ -165,7 +175,7 @@ export class SetupScreen {
     this.sourcePanel = el('div', { class: 'source-panel' });
     this.oppPanel = el('div', { class: 'opp-panel' });
     this.mapInfo = el('div', { class: 'map-info' });
-    this.map = generateMap(BUILTIN_MAPS[0]);
+    this.map = BUILTINS[0].make();
 
     const sources = el('div', { class: 'seg' });
     for (const [s, label] of [
@@ -202,9 +212,14 @@ export class SetupScreen {
       };
       colors.appendChild(s);
     });
+    const modeSel = this.select(['skirmish', 'onslaught'], ['Skirmish — destroy all enemy bases', 'Onslaught — survive endless waves'], this.mode, (v) => {
+      this.mode = v as typeof this.mode;
+      this.oppSection.classList.toggle('hidden', this.mode === 'onslaught');
+    });
     const options = el(
       'div',
       { class: 'options' },
+      el('div', { class: 'field' }, el('label', {}, 'Game mode'), modeSel),
       you,
       el('div', { class: 'field' }, el('label', {}, 'Colour'), colors),
       el('div', { class: 'field' }, el('label', {}, 'Teams'), this.select(['vsYou', 'ffa', 'allied'], ['Everyone vs you', 'Free-for-all', 'You + first AI as ally'], this.teamMode, (v) => (this.teamMode = v as typeof this.teamMode))),
@@ -220,7 +235,7 @@ export class SetupScreen {
         'div',
         { class: 'setup-grid' },
         el('div', { class: 'panel' }, el('h3', {}, 'Battlefield'), sources, this.sourcePanel, this.preview, this.mapInfo),
-        el('div', { class: 'panel' }, el('h3', {}, 'Commanders'), options, el('h3', {}, 'Opponents'), this.oppPanel),
+        el('div', { class: 'panel' }, el('h3', {}, 'Commanders'), options, (this.oppSection = el('div', {}, el('h3', {}, 'Opponents'), this.oppPanel))),
       ),
       el('div', { class: 'row' }, back, start),
     );
@@ -266,8 +281,8 @@ export class SetupScreen {
     if (this.source === 'builtin') {
       p.appendChild(
         this.select(
-          BUILTIN_MAPS.map((_, i) => String(i)),
-          BUILTIN_MAPS.map((m) => `${m.name} (${m.players}p, ${m.width}×${m.height})`),
+          BUILTINS.map((_, i) => String(i)),
+          BUILTINS.map((m) => m.label),
           String(this.builtin),
           (v) => {
             this.builtin = Number(v);
@@ -345,7 +360,7 @@ export class SetupScreen {
 
   private rebuildMap(): void {
     try {
-      if (this.source === 'builtin') this.map = generateMap(BUILTIN_MAPS[this.builtin]);
+      if (this.source === 'builtin') this.map = BUILTINS[this.builtin].make();
       else if (this.source === 'random') this.map = generateMap(this.gen);
       else if (this.source === 'saved') {
         const maps = listStoredMaps();
@@ -430,11 +445,22 @@ export class SetupScreen {
 
   private result(): SetupResult | null {
     const m = this.map;
+    const players: PlayerConfig[] = [{ name: 'You', faction: this.faction, color: TEAM_COLORS[this.color], team: 0, human: true, difficulty: 'normal' }];
+    if (this.mode === 'onslaught') {
+      if (m.starts.length < 1) {
+        alert('This map needs a start position.');
+        return null;
+      }
+      players.push({ name: 'The Horde', faction: this.faction === 'vanguard' ? 'ember' : 'vanguard', color: TEAM_COLORS[(this.color + 1) % TEAM_COLORS.length], team: 1, human: false, difficulty: 'insane', horde: true });
+      return {
+        map: m.clone(),
+        config: { players, mania: this.mania, fog: this.fog, startCredits: this.credits, seed: randomSeed(), shuffleStarts: this.shuffle, mode: 'onslaught' },
+      };
+    }
     if (m.starts.length < 2) {
       alert('This map needs at least 2 start positions.');
       return null;
     }
-    const players: PlayerConfig[] = [{ name: 'You', faction: this.faction, color: TEAM_COLORS[this.color], team: 0, human: true, difficulty: 'normal' }];
     this.opponents.forEach((o, i) => {
       const team = this.teamMode === 'vsYou' ? 1 : this.teamMode === 'allied' && i === 0 ? 0 : i + 1;
       players.push({ name: AI_NAMES[i], faction: o.faction, color: TEAM_COLORS[(this.color + i + 1) % TEAM_COLORS.length], team, human: false, difficulty: o.difficulty });

@@ -112,7 +112,7 @@ const unitList: UnitDef[] = [
 ];
 
 const buildingList: BuildingDef[] = [
-  { id: 'conyard', name: 'Construction Yard', desc: 'Builds all structures.', w: 3, h: 3, cost: 3500, buildTime: 30, hp: 2200, power: 0, sight: 6, prereq: [], produces: 'structure', buildable: false },
+  { id: 'conyard', name: 'Construction Yard', desc: 'Builds all structures. Provides a little power.', w: 3, h: 3, cost: 3500, buildTime: 30, hp: 2200, power: 20, sight: 6, prereq: [], produces: 'structure', buildable: false },
   { id: 'power', name: 'Power Plant', desc: 'Generates 100 power.', w: 2, h: 2, cost: 300, buildTime: 6, hp: 600, power: 100, sight: 4, prereq: ['conyard'] },
   { id: 'refinery', name: 'Refinery', desc: 'Processes Veridium. Comes with a free harvester.', w: 3, h: 3, cost: 2000, buildTime: 14, hp: 1000, power: -40, sight: 5, prereq: ['power'], refinery: true },
   { id: 'barracks', name: 'Barracks', desc: 'Trains infantry.', w: 2, h: 2, cost: 300, buildTime: 8, hp: 700, power: -20, sight: 5, prereq: ['power'], produces: 'infantry' },

@@ -150,6 +150,8 @@ export interface PlayerConfig {
   team: number;
   human: boolean;
   difficulty: Difficulty;
+  /** Base-less wave spawner used by Onslaught mode. */
+  horde?: boolean;
 }
 
 export class Player {
