@@ -57,6 +57,7 @@ const VEHICLE_MIX: [string, number][] = [
 ];
 const AIR_MIX: [string, number][] = [
   ['orca', 3],
+  ['carryall', 0.6],
   ['cicada', 1.5],
   ['harpy', 3],
   ['banshee', 2],
@@ -314,6 +315,7 @@ export class AI {
     const rally = this.rallyPoint();
     const idle = units.filter((u) => !this.attackers.has(u.id) && !u.order);
     for (const u of idle) {
+      if (u.u.carrier) continue; // Carryalls stay home and ferry harvesters.
       if (u.u.engineer) {
         const target = this.nearestEnemyBuilding(u.x, u.y, 14 * TILE);
         if (target) {

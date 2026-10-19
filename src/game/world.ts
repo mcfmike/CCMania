@@ -568,11 +568,147 @@ export class World {
     }
   }
 
+  // ---------------------------------------------------------------- airlift
+
+  /** Can this Carryall lift that unit? Only its owner's ground vehicles. */
+  carriable(e: Entity, t: Entity | undefined): t is Entity {
+    return !!t && !t.dead && t.isUnit && !t.isAir && !t.carried && t.u.cls === 'vehicle' && t.owner === e.owner;
+  }
+
+  /** Send the first free Carryall in the selection to lift the target. */
+  commandPickup(ids: number[], targetId: number): boolean {
+    const t = this.get(targetId);
+    for (const id of ids) {
+      const c = this.get(id);
+      if (!c?.isUnit || !c.u.carrier || c.cargoId || !this.carriable(c, t)) continue;
+      c.order = this.mkOrder('pickup', t.x, t.y, t.id);
+      c.ferryX = -1;
+      return true;
+    }
+    return false;
+  }
+
+  commandDrop(ids: number[], x: number, y: number): void {
+    for (const id of ids) {
+      const c = this.get(id);
+      if (c?.isUnit && c.u.carrier && c.cargoId) c.order = this.mkOrder('drop', x, y, 0);
+    }
+  }
+
+  private runCarrier(e: Entity): void {
+    const cargo = e.cargoId ? this.byId.get(e.cargoId) : undefined;
+    if (cargo) {
+      cargo.x = e.x;
+      cargo.y = e.y;
+      cargo.angle = e.angle;
+    }
+    const o = e.order;
+    if (!o) {
+      if (!e.cargoId && this.tick % 30 === e.id % 30) this.offerFerry(e);
+      return;
+    }
+    if (o.type === 'pickup') {
+      const t = this.get(o.target);
+      if (e.cargoId || !this.carriable(e, t)) {
+        if (t?.carryClaim === e.id) t.carryClaim = 0;
+        e.order = null;
+        return;
+      }
+      const d = Math.hypot(t.x - e.x, t.y - e.y);
+      if (d > 6) {
+        this.steer(e, t.x, t.y, d);
+        return;
+      }
+      e.cargoId = t.id;
+      t.carried = true;
+      t.carryClaim = 0;
+      t.moving = false;
+      this.sfx('place', e.x, e.y);
+      this.fx('smoke', t.x, t.y);
+      e.order = e.ferryX >= 0 ? this.mkOrder('drop', e.ferryX, e.ferryY, 0) : null;
+      e.ferryX = -1;
+      return;
+    }
+    if (o.type === 'drop') {
+      const d = Math.hypot(o.x - e.x, o.y - e.y);
+      if (d > 6) {
+        this.steer(e, o.x, o.y, d);
+        return;
+      }
+      this.dropCargo(e);
+      e.order = null;
+      return;
+    }
+    this.runMoveOrder(e, o);
+  }
+
+  /** Lower the cargo onto the nearest open ground. */
+  private dropCargo(e: Entity): boolean {
+    const c = this.byId.get(e.cargoId);
+    if (!c || c.dead) {
+      e.cargoId = 0;
+      return false;
+    }
+    const cell = nearestPassable(this.map, Math.floor(e.x / TILE), Math.floor(e.y / TILE), this.passClass(c), 6);
+    if (!cell) {
+      this.eva(e.owner, 'nodrop', 'Cannot drop here', 2);
+      return false;
+    }
+    c.x = cell.x * TILE + TILE / 2;
+    c.y = cell.y * TILE + TILE / 2;
+    c.lastX = c.x;
+    c.lastY = c.y;
+    c.stuck = 0;
+    c.carried = false;
+    e.cargoId = 0;
+    this.fx('smoke', c.x, c.y);
+    this.sfx('place', c.x, c.y);
+    return true;
+  }
+
+  /** Idle Carryalls pick up harvesters facing a long drive, Dune style. */
+  private offerFerry(e: Entity): void {
+    let best: Entity | null = null;
+    let bestD = 40 * TILE;
+    let dest = { x: 0, y: 0 };
+    for (const h of this.units) {
+      if (h.dead || h.carried || h.owner !== e.owner || !h.u.harvester || h.order?.type !== 'harvest') continue;
+      const claim = h.carryClaim ? this.get(h.carryClaim) : undefined;
+      if (claim && claim.order?.target === h.id) continue;
+      let to: { x: number; y: number } | null = null;
+      if (h.harvestState === 'toOre' && h.oreX >= 0) to = { x: h.oreX * TILE + TILE / 2, y: h.oreY * TILE + TILE / 2 };
+      else if (h.harvestState === 'return') {
+        const ref = this.nearestRefinery(h);
+        if (ref) to = { x: (ref.tx + 1) * TILE + TILE / 2, y: (ref.ty + ref.b.h) * TILE + TILE / 2 };
+      }
+      if (!to || Math.hypot(to.x - h.x, to.y - h.y) < 16 * TILE) continue;
+      const d = Math.hypot(h.x - e.x, h.y - e.y);
+      if (d < bestD) {
+        bestD = d;
+        best = h;
+        dest = to;
+      }
+    }
+    if (!best) return;
+    best.carryClaim = e.id;
+    e.order = this.mkOrder('pickup', best.x, best.y, best.id);
+    e.ferryX = dest.x;
+    e.ferryY = dest.y;
+  }
+
   /** Deploy MCVs into Construction Yards where there is room. Returns how many deployed. */
   deploy(ids: number[]): number {
     let n = 0;
     for (const id of ids) {
       const u = this.get(id);
+      // On a loaded Carryall, "deploy" means drop the cargo right here.
+      if (u?.isUnit && u.u.carrier && u.cargoId) {
+        if (this.dropCargo(u)) {
+          u.order = null;
+          n++;
+        }
+        continue;
+      }
       if (!u || !u.isUnit || !u.u.deploys) continue;
       const tx = Math.floor(u.x / TILE) - 1;
       const ty = Math.floor(u.y / TILE) - 1;
@@ -757,6 +893,17 @@ export class World {
       }
     }
     if (attackerOwner >= 0 && attackerOwner !== t.owner) this.players[attackerOwner].stats.kills++;
+    if (t.cargoId) {
+      // Whatever the Carryall was holding goes down with it.
+      const cargo = this.byId.get(t.cargoId);
+      t.cargoId = 0;
+      if (cargo && !cargo.dead) {
+        cargo.carried = false;
+        cargo.x = t.x;
+        cargo.y = t.y;
+        this.kill(cargo, attacker, attackerOwner);
+      }
+    }
     if (t.isUnit) {
       p.unitCount--;
       p.unitsByType[t.type] = (p.unitsByType[t.type] ?? 1) - 1;
@@ -840,11 +987,11 @@ export class World {
     }
 
     this.spatial.clear();
-    for (const e of this.entities) if (!e.dead) this.spatial.insert(e);
+    for (const e of this.entities) if (!e.dead && !e.carried) this.spatial.insert(e);
 
     if (this.tick % 10 === 0) this.updateDetection();
 
-    for (const u of this.units) if (!u.dead) this.updateUnit(u);
+    for (const u of this.units) if (!u.dead && !u.carried) this.updateUnit(u);
     this.separate();
     for (const b of this.buildings) if (!b.dead) this.updateBuilding(b);
     this.updateProjectiles();
@@ -1034,6 +1181,10 @@ export class World {
     if (d.stealth) e.cloaked = this.tick - e.lastFired > 75 && this.tick - e.lastDamaged > 45;
     e.moving = false;
 
+    if (d.carrier) {
+      this.runCarrier(e);
+      return;
+    }
     if (d.harvester) {
       if (e.order?.type === 'harvest') this.harvesterLogic(e);
       else if (e.order) this.runMoveOrder(e, e.order);
@@ -1297,7 +1448,7 @@ export class World {
   private steer(e: Entity, tx: number, ty: number, remaining: number): void {
     const d = e.u;
     const desired = Math.atan2(ty - e.y, tx - e.x);
-    const speed = (d.speed * TILE) / TICK_RATE;
+    const speed = ((d.speed * TILE) / TICK_RATE) * (e.cargoId ? 0.75 : 1);
     let step: number;
     let dir: number;
     if (d.cls === 'infantry') {
@@ -1346,7 +1497,7 @@ export class World {
   private separate(): void {
     const near: Entity[] = [];
     for (const e of this.units) {
-      if (e.dead) continue;
+      if (e.dead || e.carried) continue;
       this.spatial.query(e.x, e.y, e.radius + 16, near);
       for (const n of near) {
         if (n.id <= e.id || !n.isUnit || n.dead || n.isAir !== e.isAir) continue;

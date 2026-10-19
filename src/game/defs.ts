@@ -78,6 +78,8 @@ export interface UnitDef {
   /** Cannot be crushed by tanks. */
   uncrushable?: boolean;
   hero?: boolean;
+  /** Can airlift a friendly vehicle. */
+  carrier?: boolean;
 }
 
 export interface BuildingDef {
@@ -823,6 +825,25 @@ const unitList: UnitDef[] = [
     prereq: ['airfield'],
     faction: V,
     air: 30,
+  },
+  {
+    id: 'carryall',
+    name: 'Carryall',
+    desc: 'Airlifts one vehicle: right-click your vehicle to lift it, right-click the ground to drop it. Ferries harvesters on long trips when idle.',
+    cls: 'aircraft',
+    cost: 1000,
+    buildTime: 12,
+    hp: 450,
+    armor: 'heavy',
+    speed: 4,
+    turnRate: 3,
+    sight: 6,
+    radius: 15,
+    weapons: [],
+    prereq: ['airfield'],
+    faction: V,
+    air: 40,
+    carrier: true,
   },
   {
     id: 'cicada',

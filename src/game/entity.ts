@@ -2,7 +2,7 @@ import { TILE } from './constants';
 import type { BuildingDef, Faction, ProdCategory, UnitDef } from './defs';
 import { isUnitDef } from './defs';
 
-export type OrderType = 'move' | 'attack' | 'attackMove' | 'enter' | 'harvest';
+export type OrderType = 'move' | 'attack' | 'attackMove' | 'enter' | 'harvest' | 'pickup' | 'drop';
 
 export interface Order {
   type: OrderType;
@@ -56,6 +56,17 @@ export class Entity {
   lastFired = -9999;
   lastDamaged = -9999;
   lastAttacker = 0;
+
+  // Airlift state
+  /** Unit this Carryall is holding (0 = empty). */
+  cargoId = 0;
+  /** True while dangling under a Carryall: out of play until dropped. */
+  carried = false;
+  /** Carryall that has promised to ferry this unit. */
+  carryClaim = 0;
+  /** Where a Carryall should drop its cargo after a ferry pickup. */
+  ferryX = -1;
+  ferryY = -1;
   cloaked = false;
   detected = false;
   flash = 0;

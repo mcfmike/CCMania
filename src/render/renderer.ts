@@ -459,7 +459,7 @@ export class Renderer {
     const w = this.world;
     const list: Entity[] = [];
     for (const e of w.entities) {
-      if (e.dead) continue;
+      if (e.dead || e.carried) continue;
       const r = e.radius + 40;
       if (e.x + r < x0 || e.x - r > x1 || e.y + r < y0 || e.y - r > y1) continue;
       list.push(e);
@@ -533,6 +533,7 @@ export class Renderer {
       ctx.ellipse(e.x + 3, e.y + 4, d.radius * 1.05, d.radius * 0.8, 0, 0, Math.PI * 2);
       ctx.fill();
     }
+    if (e.cargoId) this.drawCargo(ctx, e, by);
     let frame = 0;
     if (d.cls === 'infantry') frame = e.moving && !e.isAir ? Math.floor(e.walk / 5) % 2 : 2;
     else if (s.body.length > 1) frame = e.moving ? Math.floor(e.walk / (d.walker ? 7 : 3)) % s.body.length : 0;
@@ -573,6 +574,32 @@ export class Renderer {
     if (e.hp < e.maxHp * 0.35 && d.cls === 'vehicle' && Math.random() < dt * 10) {
       this.particles.spawn(Sprite.DarkSmoke, e.x, e.y, { vz: 30, size: 8, grow: 14, life: 1.2, alpha: 0.6 });
     }
+  }
+
+  /** A vehicle slung under a Carryall: drawn just below it, with its own shadow on the ground. */
+  private drawCargo(ctx: CanvasRenderingContext2D, carrier: Entity, by: number): void {
+    const c = this.world.byId.get(carrier.cargoId);
+    if (!c || c.dead) return;
+    const s = unitSprite(c.type, this.world.players[c.owner].color, this.world.players[c.owner].faction);
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath();
+    ctx.ellipse(carrier.x + 8, carrier.y + 4, c.radius, c.radius * 0.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.save();
+    ctx.translate(carrier.x, by + 5);
+    ctx.rotate(carrier.angle);
+    ctx.drawImage(s.body[0], -s.size / 2, -s.size / 2, s.size, s.size);
+    if (s.turret) ctx.drawImage(s.turret, -s.size / 2, -s.size / 2, s.size, s.size);
+    ctx.restore();
+    // Lift cables.
+    ctx.strokeStyle = 'rgba(30,30,30,0.8)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(carrier.x - 6, by - 2);
+    ctx.lineTo(carrier.x - 6, by + 5);
+    ctx.moveTo(carrier.x + 4, by - 2);
+    ctx.lineTo(carrier.x + 4, by + 5);
+    ctx.stroke();
   }
 
   /** Animated parts: rotors, sensor dishes, jammer pulses, jet exhaust, auras. */

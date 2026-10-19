@@ -405,8 +405,12 @@ export class GameScreen {
         el('div', { class: 'muted' }, `${owner.name} · HP ${Math.ceil(e.hp)}/${e.maxHp}${e.isUnit ? ` · Kills ${e.kills}` : ''}`),
       );
       if (e.isUnit && e.u.harvester) info.append(el('div', { class: 'muted' }, `Cargo ${e.cargo}/700 · ${e.harvestState}`));
-      if (e.isUnit && e.u.deploys && e.owner === this.world.humanIndex) {
-        const b = el('button', { class: 'btn small primary' }, 'Deploy (D)');
+      if (e.isUnit && e.u.carrier) {
+        const cargo = e.cargoId ? this.world.byId.get(e.cargoId) : undefined;
+        info.append(el('div', { class: 'muted' }, cargo ? `Carrying: ${cargo.def.name}` : 'Empty: right-click one of your vehicles to lift it'));
+      }
+      if (e.isUnit && (e.u.deploys || (e.u.carrier && e.cargoId)) && e.owner === this.world.humanIndex) {
+        const b = el('button', { class: 'btn small primary' }, e.u.carrier ? 'Drop here (D)' : 'Deploy (D)');
         // The info panel re-renders every 100ms, so act on press rather than click.
         b.onmousedown = (ev) => {
           ev.preventDefault();
@@ -796,10 +800,11 @@ export class GameScreen {
     return this.renderer.screenToWorld(ev.clientX - r.left, ev.clientY - r.top);
   }
 
+  /** D: deploy M.C.V.s, or drop whatever a Carryall is holding. */
   private deploySelected(): void {
-    const mcvs = this.selectedUnits().filter((u) => u.u.deploys);
-    if (!mcvs.length) return;
-    this.audio.play(this.world.deploy(mcvs.map((u) => u.id)) ? 'place' : 'deny');
+    const units = this.selectedUnits().filter((u) => u.u.deploys || (u.u.carrier && u.cargoId));
+    if (!units.length) return;
+    this.audio.play(this.world.deploy(units.map((u) => u.id)) ? 'place' : 'deny');
   }
 
   private entityAt(x: number, y: number): Entity | undefined {
@@ -807,7 +812,7 @@ export class GameScreen {
     let best: Entity | undefined;
     let bd = Infinity;
     for (const e of w.entities) {
-      if (e.dead || !w.visibleToHuman(e)) continue;
+      if (e.dead || e.carried || !w.visibleToHuman(e)) continue;
       const d = e.isBuilding ? e.distTo(x, y) : Math.hypot(e.x - x, e.y - y + e.alt) - e.radius - 4;
       if (d <= 0 && (e.isUnit ? d - 100 : d) < bd) {
         bd = e.isUnit ? d - 100 : d;
@@ -912,7 +917,7 @@ export class GameScreen {
       const x1 = Math.max(box.x0, box.x1);
       const y0 = Math.min(box.y0, box.y1);
       const y1 = Math.max(box.y0, box.y1);
-      const picked = w.units.filter((u) => !u.dead && u.owner === w.humanIndex && u.x >= x0 && u.x <= x1 && u.y >= y0 && u.y <= y1);
+      const picked = w.units.filter((u) => !u.dead && !u.carried && u.owner === w.humanIndex && u.x >= x0 && u.x <= x1 && u.y >= y0 && u.y <= y1);
       // Prefer combat units over harvesters in a box select.
       const combat = picked.filter((u) => !u.u.harvester);
       const final = combat.length ? combat : picked;
@@ -950,7 +955,7 @@ export class GameScreen {
   private commandAt(x: number, y: number, useTarget: boolean): void {
     const w = this.world;
     const me = this.me;
-    const units = this.selectedUnits();
+    let units = this.selectedUnits();
     const buildings = [...this.view.selected].map((id) => w.get(id)).filter((e): e is Entity => !!e && e.isBuilding && e.owner === me.index);
     if (!units.length) {
       for (const b of buildings) if (b.b.produces && b.b.produces !== 'structure') w.setRally(me, b.id, x, y);
@@ -958,6 +963,39 @@ export class GameScreen {
       return;
     }
     const target = useTarget ? this.entityAt(x, y) : undefined;
+    // Carryalls: right-click your vehicle to lift it, right-click ground to drop the load.
+    const carriers = units.filter((u) => u.u.carrier);
+    if (carriers.length) {
+      const lift = target && carriers.some((c) => w.carriable(c, target));
+      if (lift)
+        w.commandPickup(
+          carriers.map((c) => c.id),
+          target.id,
+        );
+      else {
+        const loaded = carriers.filter((c) => c.cargoId);
+        if (loaded.length)
+          w.commandDrop(
+            loaded.map((c) => c.id),
+            x,
+            y,
+          );
+        const empty = carriers.filter((c) => !c.cargoId);
+        if (empty.length)
+          w.commandMove(
+            empty.map((c) => c.id),
+            x,
+            y,
+            'move',
+          );
+      }
+      this.renderer.marker(lift ? target.x : x, lift ? target.y : y, '#7fe7ff');
+      units = units.filter((u) => !u.u.carrier);
+      if (!units.length || lift) {
+        this.audio.play('ack');
+        return;
+      }
+    }
     const ids = units.map((u) => u.id);
     if (target && w.isEnemy(target.owner, me.index)) {
       w.commandAttack(ids, target.id);
@@ -1053,7 +1091,7 @@ export function controlsHelp(): HTMLElement {
     ['S / X', 'Stop / scatter'],
     ['Q / R', 'Sell / repair mode'],
     ['N', 'Fire superweapon'],
-    ['D', 'Deploy M.C.V. into a Construction Yard'],
+    ['D', 'Deploy M.C.V. / Carryall drops its load'],
     ['H / Space', 'Jump to base / last alert'],
     ['Tab', 'Cycle build tabs'],
     ['+ / -', 'Game speed'],

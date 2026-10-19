@@ -555,6 +555,41 @@ const BODY: Record<string, BodyDraw> = {
     canopy(c, 8, 0, 4, 2.6);
     stripe(c, pal, -12, -1, 6, 2);
   },
+  carryall(c, pal) {
+    // Twin-boom heavy lifter: four tilt-engines around an open cargo cradle.
+    for (const sy of [-1, 1]) {
+      plate(c, pal, () => rr(c, -17, sy * 7 - 2.5, 30, 5, 2.5));
+      for (const x of [-11, 7]) {
+        c.fillStyle = '#2b2d31';
+        c.beginPath();
+        c.arc(x, sy * 12, 4.5, 0, Math.PI * 2);
+        c.fill();
+        glow(c, x, sy * 12, 3, '#7fe7ff');
+        c.strokeStyle = shade(pal.body, -0.5);
+        c.lineWidth = 2;
+        c.beginPath();
+        c.moveTo(x, sy * 9);
+        c.lineTo(x, sy * 7.5);
+        c.stroke();
+      }
+    }
+    plate(c, pal, () => poly(c, [20, 0, 13, -5, 6, -5, 6, 5, 13, 5]));
+    canopy(c, 14, 0, 3.6, 2.4);
+    // Cargo cradle with yellow clamps.
+    c.strokeStyle = '#26282b';
+    c.lineWidth = 1.5;
+    c.strokeRect(-14, -4.5, 19, 9);
+    c.fillStyle = '#e8c21a';
+    for (const [x, y] of [
+      [-14, -4.5],
+      [3, -4.5],
+      [-14, 2.5],
+      [3, 2.5],
+    ])
+      c.fillRect(x, y, 2, 2);
+    stripe(c, pal, -17, -9.5, 8, 1.6);
+    stripe(c, pal, -17, 7.9, 8, 1.6);
+  },
   cicada(c, pal) {
     for (const sy of [-1, 1]) {
       c.fillStyle = shade(pal.body, -0.15);

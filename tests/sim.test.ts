@@ -153,6 +153,37 @@ describe('new roster mechanics', () => {
     expect(w.map.passMask(PassClass.Vehicle)[water]).toBe(0);
   });
 
+  it('Carryalls lift a vehicle and drop it somewhere else', () => {
+    const w = duel();
+    const s = w.map.starts[0];
+    const carryall = w.spawnNear(0, UNITS.carryall, s.x + 4, s.y + 4)!;
+    const tank = w.spawnNear(0, UNITS.titan, s.x + 6, s.y + 6)!;
+    w.step();
+    expect(w.commandPickup([carryall.id], tank.id)).toBe(true);
+    for (let i = 0; i < 5 * TICK_RATE && !tank.carried; i++) w.step();
+    expect(tank.carried).toBe(true);
+    // Carried units are out of reach of enemy weapons (once the grid is rebuilt next tick).
+    w.step();
+    expect(w.spatial.query(tank.x, tank.y, 4, []).includes(tank)).toBe(false);
+    const dest = { x: (s.x + 14) * TILE, y: (s.y + 3) * TILE };
+    w.commandDrop([carryall.id], dest.x, dest.y);
+    for (let i = 0; i < 10 * TICK_RATE && tank.carried; i++) w.step();
+    expect(tank.carried).toBe(false);
+    expect(Math.hypot(tank.x - dest.x, tank.y - dest.y)).toBeLessThan(TILE * 4);
+  });
+
+  it('a downed Carryall takes its cargo with it', () => {
+    const w = duel();
+    const s = w.map.starts[0];
+    const carryall = w.spawnNear(0, UNITS.carryall, s.x + 4, s.y + 4)!;
+    const tank = w.spawnNear(0, UNITS.badger, s.x + 4, s.y + 4)!;
+    w.step();
+    w.commandPickup([carryall.id], tank.id);
+    for (let i = 0; i < 3 * TICK_RATE && !tank.carried; i++) w.step();
+    w.kill(carryall, null, 1);
+    expect(tank.dead).toBe(true);
+  });
+
   it('ground-only weapons cannot target aircraft', () => {
     const w = duel();
     const s = w.map.starts[0];
