@@ -326,14 +326,28 @@ export class AI {
       if (rally && Math.hypot(u.x - rally.x, u.y - rally.y) > TILE * 5) w.commandMove([u.id], rally.x, rally.y, 'attackMove');
     }
 
+    // Fill idle APCs at the rally point with idle infantry.
+    for (const apc of units) {
+      if (!apc.u.transport || apc.order || this.attackers.has(apc.id) || w.seatsLeft(apc) <= 0) continue;
+      const riders = units.filter(
+        (u) => !u.order && !u.u.hero && !this.attackers.has(u.id) && w.canBoard(u, apc) && Math.hypot(u.x - apc.x, u.y - apc.y) < 8 * TILE,
+      );
+      if (riders.length)
+        w.commandBoard(
+          riders.map((u) => u.id),
+          apc.id,
+        );
+    }
+
     const ready = units.filter((u) => !this.attackers.has(u.id) && (u.u.weapons.length || u.u.engineer || u.u.heal || u.u.jammer || u.u.detector));
     if (w.tick >= this.nextWaveAt && ready.length >= this.waveSize) {
       const base = this.baseCenter();
       const target = this.nearestEnemyBuilding((base?.x ?? this.home.x) * TILE, (base?.y ?? this.home.y) * TILE, Infinity);
       if (target) {
-        const fighters = ready.filter((u) => !u.u.engineer).map((u) => u.id);
+        // Riders (and troops still climbing in) travel inside their APC.
+        const fighters = ready.filter((u) => !u.u.engineer && !u.carried && u.order?.type !== 'board').map((u) => u.id);
         w.commandMove(fighters, target.x, target.y, 'attackMove');
-        const engineers = ready.filter((u) => u.u.engineer).map((u) => u.id);
+        const engineers = ready.filter((u) => u.u.engineer && !u.carried && u.order?.type !== 'board').map((u) => u.id);
         if (engineers.length) w.commandAttack(engineers, target.id);
         for (const u of ready) this.attackers.add(u.id);
         this.waveSize += this.t.growth;
@@ -345,7 +359,10 @@ export class AI {
     // Attack groups keep pushing to the next structure once their target falls.
     for (const id of this.attackers) {
       const u = w.get(id);
-      if (!u || u.order) continue;
+      if (!u || u.carried) continue;
+      // APCs let their troops out once the shooting starts.
+      if (u.passengers.length && w.spatial.query(u.x, u.y, 6 * TILE, []).some((n) => w.canTarget(p.index, n))) w.unload(u);
+      if (u.order) continue;
       const target = this.nearestEnemyBuilding(u.x, u.y, Infinity);
       if (target) {
         if (u.u.engineer) w.commandAttack([u.id], target.id);

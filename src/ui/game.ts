@@ -405,12 +405,21 @@ export class GameScreen {
         el('div', { class: 'muted' }, `${owner.name} · HP ${Math.ceil(e.hp)}/${e.maxHp}${e.isUnit ? ` · Kills ${e.kills}` : ''}`),
       );
       if (e.isUnit && e.u.harvester) info.append(el('div', { class: 'muted' }, `Cargo ${e.cargo}/700 · ${e.harvestState}`));
+      if (e.isUnit && e.u.transport) {
+        info.append(
+          el(
+            'div',
+            { class: 'muted' },
+            `Passengers ${e.passengers.length}/${e.u.transport}${e.passengers.length ? '' : ': right-click it with infantry selected'}`,
+          ),
+        );
+      }
       if (e.isUnit && e.u.carrier) {
         const cargo = e.cargoId ? this.world.byId.get(e.cargoId) : undefined;
         info.append(el('div', { class: 'muted' }, cargo ? `Carrying: ${cargo.def.name}` : 'Empty: right-click one of your vehicles to lift it'));
       }
-      if (e.isUnit && (e.u.deploys || (e.u.carrier && e.cargoId)) && e.owner === this.world.humanIndex) {
-        const b = el('button', { class: 'btn small primary' }, e.u.carrier ? 'Drop here (D)' : 'Deploy (D)');
+      if (e.isUnit && (e.u.deploys || (e.u.carrier && e.cargoId) || e.passengers.length) && e.owner === this.world.humanIndex) {
+        const b = el('button', { class: 'btn small primary' }, e.passengers.length ? 'Unload (D)' : e.u.carrier ? 'Drop here (D)' : 'Deploy (D)');
         // The info panel re-renders every 100ms, so act on press rather than click.
         b.onmousedown = (ev) => {
           ev.preventDefault();
@@ -802,7 +811,7 @@ export class GameScreen {
 
   /** D: deploy M.C.V.s, or drop whatever a Carryall is holding. */
   private deploySelected(): void {
-    const units = this.selectedUnits().filter((u) => u.u.deploys || (u.u.carrier && u.cargoId));
+    const units = this.selectedUnits().filter((u) => u.u.deploys || (u.u.carrier && u.cargoId) || u.passengers.length);
     if (!units.length) return;
     this.audio.play(this.world.deploy(units.map((u) => u.id)) ? 'place' : 'deny');
   }
@@ -964,6 +973,23 @@ export class GameScreen {
     }
     const target = useTarget ? this.entityAt(x, y) : undefined;
     // Carryalls: right-click your vehicle to lift it, right-click ground to drop the load.
+    // Infantry: right-click one of your APCs to climb in.
+    if (target && target.isUnit && target.u.transport && target.owner === me.index) {
+      const boarders = units.filter((u) => w.canBoard(u, target));
+      if (boarders.length) {
+        const n = w.commandBoard(
+          boarders.map((u) => u.id),
+          target.id,
+        );
+        this.renderer.marker(target.x, target.y, '#7fe7ff');
+        if (!n) this.message('APC is full');
+        units = units.filter((u) => !boarders.includes(u));
+        if (!units.length) {
+          this.audio.play(n ? 'ack' : 'deny');
+          return;
+        }
+      }
+    }
     const carriers = units.filter((u) => u.u.carrier);
     if (carriers.length) {
       const lift = target && carriers.some((c) => w.carriable(c, target));
@@ -1025,7 +1051,9 @@ export class GameScreen {
   }
 
   private selectedUnits(): Entity[] {
-    return [...this.view.selected].map((id) => this.world.get(id)).filter((e): e is Entity => !!e && e.isUnit && e.owner === this.world.humanIndex);
+    return [...this.view.selected]
+      .map((id) => this.world.get(id))
+      .filter((e): e is Entity => !!e && e.isUnit && !e.carried && e.owner === this.world.humanIndex);
   }
 
   private selectSameTypeOnScreen(type?: string): void {
@@ -1091,7 +1119,7 @@ export function controlsHelp(): HTMLElement {
     ['S / X', 'Stop / scatter'],
     ['Q / R', 'Sell / repair mode'],
     ['N', 'Fire superweapon'],
-    ['D', 'Deploy M.C.V. / Carryall drops its load'],
+    ['D', 'Deploy M.C.V. · Carryall drops its load · APC unloads'],
     ['H / Space', 'Jump to base / last alert'],
     ['Tab', 'Cycle build tabs'],
     ['+ / -', 'Game speed'],

@@ -696,11 +696,113 @@ export class World {
     e.ferryY = dest.y;
   }
 
+  // ---------------------------------------------------------------- APC transport
+
+  /** Free seats left in a transport. */
+  seatsLeft(apc: Entity): number {
+    return (apc.u.transport ?? 0) - apc.passengers.length;
+  }
+
+  canBoard(inf: Entity, apc: Entity | undefined): apc is Entity {
+    return (
+      !!apc &&
+      !apc.dead &&
+      !apc.carried &&
+      apc.isUnit &&
+      !!apc.u.transport &&
+      apc.owner === inf.owner &&
+      inf.isUnit &&
+      inf.u.cls === 'infantry' &&
+      !inf.isAir &&
+      !inf.carried
+    );
+  }
+
+  /** Infantry walk to the APC and climb in (extra troops wait outside once it is full). */
+  commandBoard(ids: number[], apcId: number): number {
+    const apc = this.get(apcId);
+    let n = 0;
+    for (const id of ids) {
+      const u = this.get(id);
+      if (!u || !this.canBoard(u, apc) || n >= this.seatsLeft(apc)) continue;
+      u.order = this.mkOrder('board', apc.x, apc.y, apc.id);
+      u.targetId = 0;
+      n++;
+    }
+    return n;
+  }
+
+  private runBoard(e: Entity, o: Order): void {
+    const apc = this.get(o.target);
+    if (!this.canBoard(e, apc) || this.seatsLeft(apc) <= 0) {
+      e.order = null;
+      return;
+    }
+    const d = Math.hypot(apc.x - e.x, apc.y - e.y) - apc.radius - e.radius;
+    if (d > 6) {
+      this.chase(e, apc);
+      return;
+    }
+    apc.passengers.push(e.id);
+    e.carried = true;
+    e.order = null;
+    e.targetId = 0;
+    e.moving = false;
+    this.sfx('click', apc.x, apc.y);
+  }
+
+  /** Let every passenger out around the APC. Returns false if nobody could get out. */
+  unload(apc: Entity, bailOut = false): boolean {
+    const cx = Math.floor(apc.x / TILE);
+    const cy = Math.floor(apc.y / TILE);
+    const left: number[] = [];
+    apc.passengers.forEach((id, k) => {
+      const p = this.byId.get(id);
+      if (!p || p.dead) return;
+      const a = (k / Math.max(1, apc.passengers.length)) * Math.PI * 2;
+      const cell = nearestPassable(this.map, cx + Math.round(Math.cos(a)), cy + Math.round(Math.sin(a)), PassClass.Infantry, 4);
+      if (!cell) {
+        left.push(id);
+        return;
+      }
+      p.x = cell.x * TILE + TILE / 2 + this.rng.range(-6, 6);
+      p.y = cell.y * TILE + TILE / 2 + this.rng.range(-6, 6);
+      p.lastX = p.x;
+      p.lastY = p.y;
+      p.carried = false;
+      p.order = null;
+      if (bailOut) p.hp = Math.max(1, Math.min(p.hp, p.maxHp * 0.5));
+    });
+    const unloaded = apc.passengers.length - left.length;
+    apc.passengers = left;
+    if (unloaded) this.sfx('click', apc.x, apc.y);
+    else if (!bailOut) this.eva(apc.owner, 'nounload', 'Cannot unload here', 2);
+    return unloaded > 0;
+  }
+
+  /** Passengers ride along with their transport. */
+  private syncPassengers(): void {
+    for (const u of this.units) {
+      if (u.dead || !u.passengers.length) continue;
+      for (const id of u.passengers) {
+        const p = this.byId.get(id);
+        if (!p) continue;
+        p.x = u.x;
+        p.y = u.y;
+      }
+    }
+  }
+
   /** Deploy MCVs into Construction Yards where there is room. Returns how many deployed. */
   deploy(ids: number[]): number {
     let n = 0;
     for (const id of ids) {
       const u = this.get(id);
+      // On a loaded APC, "deploy" means let the troops out.
+      if (u?.isUnit && u.u.transport && u.passengers.length) {
+        if (this.unload(u)) n++;
+        continue;
+      }
       // On a loaded Carryall, "deploy" means drop the cargo right here.
       if (u?.isUnit && u.u.carrier && u.cargoId) {
         if (this.dropCargo(u)) {
@@ -893,6 +995,10 @@ export class World {
       }
     }
     if (attackerOwner >= 0 && attackerOwner !== t.owner) this.players[attackerOwner].stats.kills++;
+    if (t.passengers.length) {
+      // Troops bail out of a burning APC, shaken but alive.
+      this.unload(t, true);
+    }
     if (t.cargoId) {
       // Whatever the Carryall was holding goes down with it.
       const cargo = this.byId.get(t.cargoId);
@@ -992,6 +1098,7 @@ export class World {
     if (this.tick % 10 === 0) this.updateDetection();
 
     for (const u of this.units) if (!u.dead && !u.carried) this.updateUnit(u);
+    this.syncPassengers();
     this.separate();
     for (const b of this.buildings) if (!b.dead) this.updateBuilding(b);
     this.updateProjectiles();
@@ -1202,6 +1309,7 @@ export class World {
     else if (o.type === 'attackMove') this.runAttackMove(e, o);
     else if (o.type === 'attack') this.runAttack(e, o);
     else if (o.type === 'enter') this.runEnter(e, o);
+    else if (o.type === 'board') this.runBoard(e, o);
 
     // Turreted vehicles may shoot while driving; everybody else must stop.
     if (e.order?.type === 'move' && !d.turret) e.targetId = 0;

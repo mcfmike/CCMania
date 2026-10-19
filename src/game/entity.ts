@@ -2,7 +2,7 @@ import { TILE } from './constants';
 import type { BuildingDef, Faction, ProdCategory, UnitDef } from './defs';
 import { isUnitDef } from './defs';
 
-export type OrderType = 'move' | 'attack' | 'attackMove' | 'enter' | 'harvest' | 'pickup' | 'drop';
+export type OrderType = 'move' | 'attack' | 'attackMove' | 'enter' | 'harvest' | 'pickup' | 'drop' | 'board';
 
 export interface Order {
   type: OrderType;
@@ -67,6 +67,8 @@ export class Entity {
   /** Where a Carryall should drop its cargo after a ferry pickup. */
   ferryX = -1;
   ferryY = -1;
+  /** Infantry riding inside this APC. */
+  passengers: number[] = [];
   cloaked = false;
   detected = false;
   flash = 0;

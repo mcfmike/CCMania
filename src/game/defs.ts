@@ -80,6 +80,8 @@ export interface UnitDef {
   hero?: boolean;
   /** Can airlift a friendly vehicle. */
   carrier?: boolean;
+  /** Infantry seats (APC). */
+  transport?: number;
 }
 
 export interface BuildingDef {
@@ -553,7 +555,7 @@ const unitList: UnitDef[] = [
   {
     id: 'apc',
     name: 'Armored APC',
-    desc: 'Tough, fast machine-gun carrier. Crushes infantry.',
+    desc: 'Carries 5 infantry: right-click it with infantry selected, D to unload. Machine gun, crushes infantry.',
     cls: 'vehicle',
     cost: 700,
     buildTime: 9,
@@ -567,6 +569,7 @@ const unitList: UnitDef[] = [
     prereq: ['factory'],
     faction: E,
     crusher: true,
+    transport: 5,
   },
   {
     id: 'termite',

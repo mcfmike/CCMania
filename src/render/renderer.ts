@@ -663,6 +663,13 @@ export class Renderer {
         ctx.stroke();
         break;
       }
+      case 'apc':
+        // Seat lights: one pip per passenger.
+        for (let i = 0; i < (e.u.transport ?? 0); i++) {
+          ctx.fillStyle = i < e.passengers.length ? '#7dff7d' : 'rgba(0,0,0,0.55)';
+          ctx.fillRect(e.x - 9 + i * 4, by + e.radius + 2, 3, 3);
+        }
+        break;
       case 'tactician':
         if (e.owner === this.world.humanIndex) {
           ctx.strokeStyle = 'rgba(255,215,90,0.18)';

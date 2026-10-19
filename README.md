@@ -22,6 +22,7 @@ To publish on GitHub Pages: go to Settings → Pages → Source: **GitHub Action
   - **Order of the Ember** (black and red): Light Infantry, Dragoon, Cyborg, Tactician, hero **Ankha**; Raider, Armored APC, Termite Mine, Raptor Tank, Artillery, Mobile ECM, Stealth Tank, Inferno Flametank; Harpy gunship and Banshee Fighter; Doom Silo nuke, Spire of Light.
   - Both: Engineer, Harvester, Mobile Sensor Array (reveals cloaked units), M.C.V. (press `D` to deploy a new base).
 - **Air war**: aircraft fly over terrain and can only be hit by anti-air weapons (rockets, machine guns, missiles); hover units cross water.
+- **Armored APC**: carries 5 infantry. Right-click it with infantry selected to board, press `D` to unload. If it's destroyed, the passengers bail out wounded.
 - **Carryall**: right-click one of your vehicles to lift it, right-click the ground to drop it. Idle Carryalls ferry harvesters on long trips by themselves.
 - **The C&C formula**: Construction Yard, power, refinery and harvesters, barracks, war factory, Comm Center radar, tech center, walls, sell and repair, rally points, veterancy, tank-crushes-infantry, engineers capturing buildings, commando C4.
 - **Modes**:
@@ -47,7 +48,7 @@ See [docs/DESIGN.md](docs/DESIGN.md) for the engine decision, the architecture a
 | `S` / `X` | Stop / scatter |
 | `Q` / `R` | Sell / repair mode |
 | `N` | Fire superweapon |
-| `D` | Deploy M.C.V. / Carryall drops its load |
+| `D` | Deploy M.C.V. / Carryall drops its load / APC unloads |
 | `H` / `Space` | Jump to base / last alert |
 | `Tab` | Cycle build tabs |
 | `+` / `-` | Game speed |

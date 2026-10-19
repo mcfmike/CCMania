@@ -184,6 +184,45 @@ describe('new roster mechanics', () => {
     expect(tank.dead).toBe(true);
   });
 
+  it('infantry board an APC, ride along and unload', () => {
+    const w = duel();
+    const s = w.map.starts[0];
+    const apc = w.spawnNear(1, UNITS.apc, s.x + 5, s.y + 5)!;
+    const squad = [0, 1, 2, 3, 4, 5].map((k) => w.spawnNear(1, UNITS.rifleman, s.x + 3 + k, s.y + 7)!);
+    w.step();
+    expect(
+      w.commandBoard(
+        squad.map((u) => u.id),
+        apc.id,
+      ),
+    ).toBe(5);
+    for (let i = 0; i < 6 * TICK_RATE; i++) w.step();
+    expect(apc.passengers.length).toBe(5);
+    expect(squad.filter((u) => u.carried).length).toBe(5);
+    // Riders travel with the APC.
+    apc.x += TILE * 3;
+    w.step();
+    for (const id of apc.passengers) expect(w.byId.get(id)!.x).toBe(apc.x);
+    expect(w.unload(apc)).toBe(true);
+    expect(apc.passengers.length).toBe(0);
+    expect(squad.every((u) => !u.carried)).toBe(true);
+  });
+
+  it('passengers bail out wounded when their APC is destroyed', () => {
+    const w = duel();
+    const s = w.map.starts[0];
+    const apc = w.spawnNear(1, UNITS.apc, s.x + 5, s.y + 5)!;
+    const rider = w.spawnNear(1, UNITS.cyborg, s.x + 5, s.y + 6)!;
+    w.step();
+    w.commandBoard([rider.id], apc.id);
+    for (let i = 0; i < 4 * TICK_RATE && !rider.carried; i++) w.step();
+    expect(rider.carried).toBe(true);
+    w.kill(apc, null, 0);
+    expect(rider.dead).toBe(false);
+    expect(rider.carried).toBe(false);
+    expect(rider.hp).toBeLessThanOrEqual(rider.maxHp * 0.5);
+  });
+
   it('ground-only weapons cannot target aircraft', () => {
     const w = duel();
     const s = w.map.starts[0];
