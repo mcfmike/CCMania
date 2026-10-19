@@ -7,6 +7,7 @@ import { Renderer, type ViewState } from '../render/renderer';
 import { iconFor } from '../render/sprites';
 import { terrainOverview } from '../render/terrain';
 import { el, fmt } from './dom';
+import { bindTouch } from './touch';
 
 export interface GameScreenOptions {
   onExit: () => void;
@@ -46,6 +47,8 @@ export class GameScreen {
   private miniBase: HTMLCanvasElement;
   private intensityAcc = 0;
   private abort = new AbortController();
+  /** Set once the player uses touch, which disables edge-scrolling. */
+  private touching = false;
   private ui!: {
     credits: HTMLElement;
     powerFill: HTMLElement;
@@ -497,7 +500,7 @@ export class GameScreen {
     ctx.strokeRect(ox + (r.cam.x / TILE) * s, oy + (r.cam.y / TILE) * s, (r.vw / r.cam.zoom / TILE) * s, (r.vh / r.cam.zoom / TILE) * s);
   }
 
-  private minimapToWorld(ev: MouseEvent): { x: number; y: number } {
+  private minimapToWorld(ev: { clientX: number; clientY: number }): { x: number; y: number } {
     const c = this.ui.minimap;
     const rect = c.getBoundingClientRect();
     const m = this.world.map;
@@ -528,6 +531,16 @@ export class GameScreen {
     });
     window.addEventListener('mouseup', () => (down = false), { signal: this.abort.signal });
     c.addEventListener('contextmenu', (ev) => ev.preventDefault(), { signal: this.abort.signal });
+    // Touch: drag a finger across the minimap to fly the camera.
+    const touchJump = (ev: TouchEvent) => {
+      ev.preventDefault();
+      const t = ev.touches[0];
+      if (!t) return;
+      const p = this.minimapToWorld(t);
+      this.renderer.centerOn(p.x, p.y);
+    };
+    c.addEventListener('touchstart', touchJump, { passive: false, signal: this.abort.signal });
+    c.addEventListener('touchmove', touchJump, { passive: false, signal: this.abort.signal });
   }
 
   // ---------------------------------------------------------------- pause / end
@@ -740,11 +753,60 @@ export class GameScreen {
 
   private bindInput(): void {
     const c = this.canvas;
+    // Touch: drag to scroll, pinch to zoom, tap = left click, long-press = right click (orders).
+    const noMods = { shiftKey: false } as MouseEvent;
+    bindTouch(
+      c,
+      {
+        oneFinger: 'pan',
+        pan: (dx, dy) => {
+          const r = this.renderer;
+          r.cam.x -= dx / r.cam.zoom;
+          r.cam.y -= dy / r.cam.zoom;
+          r.clampCam();
+        },
+        zoom: (f, x, y) => this.renderer.zoomAt(x, y, f),
+        tap: (s) => {
+          this.audio.init();
+          this.audio.startMusic();
+          const p = this.renderer.screenToWorld(s.x, s.y);
+          this.view.mouse = p;
+          this.updatePlacement();
+          this.leftDown(p.x, p.y, noMods);
+          this.drag = null;
+          this.leftUp(p.x, p.y, false, noMods);
+        },
+        longPress: (s) => {
+          const p = this.renderer.screenToWorld(s.x, s.y);
+          this.rightClick(p.x, p.y);
+        },
+      },
+      this.abort.signal,
+    );
     window.addEventListener('keydown', this.onKeyDown, { signal: this.abort.signal });
     window.addEventListener('keyup', this.onKeyUp, { signal: this.abort.signal });
     window.addEventListener('resize', this.onResize, { signal: this.abort.signal });
     c.addEventListener('contextmenu', (ev) => ev.preventDefault(), { signal: this.abort.signal });
-    c.addEventListener('mouseenter', () => (this.mouseScreen.inside = true), { signal: this.abort.signal });
+    c.addEventListener(
+      'mouseenter',
+      (ev) => {
+        // Record where the pointer came in, so a pointer that hasn't moved yet isn't mistaken for one parked at the edge.
+        const r = c.getBoundingClientRect();
+        this.mouseScreen.x = ev.clientX - r.left;
+        this.mouseScreen.y = ev.clientY - r.top;
+        this.mouseScreen.inside = !this.touching;
+      },
+      { signal: this.abort.signal },
+    );
+    // Touch devices never edge-scroll.
+    c.addEventListener(
+      'touchstart',
+      () => {
+        this.touching = true;
+        this.mouseScreen.inside = false;
+      },
+      { signal: this.abort.signal },
+    );
     c.addEventListener('mouseleave', () => (this.mouseScreen.inside = false), { signal: this.abort.signal });
     c.addEventListener(
       'wheel',

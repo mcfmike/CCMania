@@ -8,6 +8,7 @@ import { canvas } from '../render/color';
 import { blossomSprite, buildingSprite, oreSprites, unitSprite } from '../render/sprites';
 import { TERRAIN_RGB, TerrainRenderer, terrainOverview } from '../render/terrain';
 import { el } from './dom';
+import { bindTouch } from './touch';
 import { TEAM_COLORS } from './menu';
 
 type Tool = 'terrain' | 'ore' | 'fill' | 'blossom' | 'start' | 'entity' | 'erase';
@@ -630,6 +631,28 @@ export class EditorScreen {
     this.cam.y = vh >= wh ? (wh - vh) / 2 : Math.max(-64, Math.min(wh - vh + 64, this.cam.y));
   }
 
+  /** Begin a brush stroke, fill or object placement at a cell. */
+  private strokeStart(cell: { x: number; y: number }): void {
+    this.pushUndo();
+    if (this.tool === 'terrain' || this.tool === 'ore') {
+      this.painting = true;
+      this.lastCell = cell;
+      this.paintAt(cell.x, cell.y);
+    } else if (this.tool === 'fill') this.fillAt(cell.x, cell.y);
+    else this.clickObject(cell.x, cell.y);
+  }
+
+  /** Continue a brush stroke, filling the gap since the last cell. */
+  private strokeTo(cell: { x: number; y: number }): void {
+    if (!this.painting || !this.lastCell) return;
+    const steps = Math.max(Math.abs(cell.x - this.lastCell.x), Math.abs(cell.y - this.lastCell.y));
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      this.paintAt(Math.round(this.lastCell.x + (cell.x - this.lastCell.x) * t), Math.round(this.lastCell.y + (cell.y - this.lastCell.y) * t));
+    }
+    this.lastCell = cell;
+  }
+
   private bind(): void {
     const c = this.canvas;
     window.addEventListener('resize', this.onResize, { signal: this.abort.signal });
@@ -659,15 +682,46 @@ export class EditorScreen {
         return;
       }
       if (ev.button !== 0) return;
-      const cell = this.toCell(ev);
-      this.pushUndo();
-      if (this.tool === 'terrain' || this.tool === 'ore') {
-        this.painting = true;
-        this.lastCell = cell;
-        this.paintAt(cell.x, cell.y);
-      } else if (this.tool === 'fill') this.fillAt(cell.x, cell.y);
-      else this.clickObject(cell.x, cell.y);
+      this.strokeStart(this.toCell(ev));
     });
+    // Touch: one finger paints / places, two fingers pan and pinch-zoom.
+    const touchCell = (p: { x: number; y: number }) => ({
+      x: Math.floor((this.cam.x + p.x / this.cam.zoom) / TILE),
+      y: Math.floor((this.cam.y + p.y / this.cam.zoom) / TILE),
+    });
+    bindTouch(
+      c,
+      {
+        oneFinger: 'paint',
+        pan: (dx, dy) => {
+          this.cam.x -= dx / this.cam.zoom;
+          this.cam.y -= dy / this.cam.zoom;
+          this.clampCam();
+        },
+        zoom: (f, x, y) => {
+          const wx = this.cam.x + x / this.cam.zoom;
+          const wy = this.cam.y + y / this.cam.zoom;
+          this.cam.zoom = Math.max(0.2, Math.min(2.5, this.cam.zoom * f));
+          this.cam.x = wx - x / this.cam.zoom;
+          this.cam.y = wy - y / this.cam.zoom;
+          this.clampCam();
+        },
+        paintStart: (p) => this.strokeStart(touchCell(p)),
+        paintMove: (p) => this.strokeTo(touchCell(p)),
+        paintEnd: () => {
+          this.painting = false;
+          this.lastCell = null;
+        },
+        paintCancel: () => {
+          // The first finger of a pinch shouldn't leave a dab of paint behind.
+          this.painting = false;
+          this.lastCell = null;
+          this.doUndo();
+          this.redo.pop();
+        },
+      },
+      this.abort.signal,
+    );
     window.addEventListener(
       'mousemove',
       (ev) => {
@@ -679,15 +733,7 @@ export class EditorScreen {
           this.cam.y = this.panning.cy - (ev.clientY - this.panning.sy) / this.cam.zoom;
           this.clampCam();
         }
-        if (this.painting && this.lastCell) {
-          const cell = this.toCell(ev);
-          const steps = Math.max(Math.abs(cell.x - this.lastCell.x), Math.abs(cell.y - this.lastCell.y));
-          for (let i = 1; i <= steps; i++) {
-            const t = i / steps;
-            this.paintAt(Math.round(this.lastCell.x + (cell.x - this.lastCell.x) * t), Math.round(this.lastCell.y + (cell.y - this.lastCell.y) * t));
-          }
-          this.lastCell = cell;
-        }
+        if (this.painting) this.strokeTo(this.toCell(ev));
       },
       { signal: this.abort.signal },
     );
@@ -700,7 +746,7 @@ export class EditorScreen {
       },
       { signal: this.abort.signal },
     );
-    this.mini.addEventListener('mousedown', (ev) => {
+    const miniJump = (ev: { clientX: number; clientY: number }) => {
       const r = this.mini.getBoundingClientRect();
       const s = Math.min(this.mini.width / this.map.w, this.mini.height / this.map.h);
       const x = (((ev.clientX - r.left) / r.width) * this.mini.width) / s;
@@ -708,7 +754,17 @@ export class EditorScreen {
       this.cam.x = x * TILE - this.canvas.clientWidth / this.cam.zoom / 2;
       this.cam.y = y * TILE - this.canvas.clientHeight / this.cam.zoom / 2;
       this.clampCam();
-    });
+    };
+    this.mini.addEventListener('mousedown', miniJump, { signal: this.abort.signal });
+    for (const type of ['touchstart', 'touchmove'] as const)
+      this.mini.addEventListener(
+        type,
+        (ev) => {
+          ev.preventDefault();
+          if (ev.touches[0]) miniJump(ev.touches[0]);
+        },
+        { passive: false, signal: this.abort.signal },
+      );
   }
 
   // ---------------------------------------------------------------- render

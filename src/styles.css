@@ -1082,3 +1082,11 @@ table.stats td:first-child {
   border: 1px solid var(--edge);
   align-self: center;
 }
+
+/* Touch: the game handles its own pan / pinch gestures on these surfaces. */
+.game-canvas,
+.editor-canvas,
+.minimap {
+  touch-action: none;
+  -webkit-touch-callout: none;
+}

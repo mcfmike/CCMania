@@ -55,6 +55,8 @@ See [docs/DESIGN.md](docs/DESIGN.md) for the engine decision, the architecture a
 | `M` | Toggle music |
 | `Esc` / `P` | Cancel / pause menu |
 
+**Touch screens:** drag to scroll (flick for momentum), pinch to zoom, tap to select, long-press to give orders, and drag on the minimap to jump around. In the map editor, one finger paints and two fingers pan and zoom.
+
 Sidebar: left-click a cameo to build it (Shift+click queues 5), and right-click to put it on hold or cancel. When a structure says **READY**, click it and then place it on the map.
 
 ## Project layout
