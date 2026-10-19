@@ -1,18 +1,20 @@
 import { TILE } from '../game/constants';
-import { BUILDINGS, UNITS } from '../game/defs';
+import { BUILDINGS, UNITS, type Faction } from '../game/defs';
 import { canvas, shade } from './color';
+import { barrel, centered, lin, rad, rr, type Ctx } from './draw';
+import { bodyFrames, drawBody, drawInfantryFrame, drawInfantryPortrait, drawTurret, hasTurretArt, palette } from './unitArt';
 
 /**
  * Every sprite in the game is drawn procedurally here, so the project ships
  * without a single binary asset. Results are cached per type + team colour.
  */
 
-type Ctx = CanvasRenderingContext2D;
-
 export interface UnitSprite {
   body: HTMLCanvasElement[];
   turret: HTMLCanvasElement | null;
   size: number;
+  /** Black silhouette for aircraft ground shadows. */
+  shadow?: HTMLCanvasElement;
 }
 
 export interface BuildingSprite {
@@ -26,260 +28,47 @@ const unitCache = new Map<string, UnitSprite>();
 const buildingCache = new Map<string, BuildingSprite>();
 const misc = new Map<string, HTMLCanvasElement>();
 
-function rr(c: Ctx, x: number, y: number, w: number, h: number, r: number): void {
-  c.beginPath();
-  c.roundRect(x, y, w, h, r);
+/** Faction body colour used on structures (team colour is used for trim). */
+function structureBase(faction: Faction): string {
+  return faction === 'ember' ? '#3a3d44' : '#b39257';
 }
 
-function lin(c: Ctx, x0: number, y0: number, x1: number, y1: number, stops: [number, string][]): CanvasGradient {
-  const g = c.createLinearGradient(x0, y0, x1, y1);
-  for (const [o, col] of stops) g.addColorStop(o, col);
-  return g;
+/** Unit sprites are rasterised at this multiple so they stay crisp when zoomed in. */
+const RES = 2;
+
+function hires(size: number, draw: (c: Ctx) => void): HTMLCanvasElement {
+  return centered(size * RES, (c) => {
+    c.scale(RES, RES);
+    draw(c);
+  });
 }
 
-function rad(c: Ctx, x: number, y: number, r0: number, r1: number, stops: [number, string][]): CanvasGradient {
-  const g = c.createRadialGradient(x, y, r0, x, y, r1);
-  for (const [o, col] of stops) g.addColorStop(o, col);
-  return g;
-}
-
-function tracks(c: Ctx, len: number, w: number, gap: number): void {
-  for (const sy of [-1, 1]) {
-    const y = sy > 0 ? gap : -gap - w;
-    c.fillStyle = '#1d1f22';
-    rr(c, -len / 2, y, len, w, 2);
-    c.fill();
-    c.strokeStyle = '#3c4046';
-    c.lineWidth = 1;
-    for (let x = -len / 2 + 2; x < len / 2; x += 3) {
-      c.beginPath();
-      c.moveTo(x, y + 0.5);
-      c.lineTo(x, y + w - 0.5);
-      c.stroke();
-    }
-  }
-}
-
-function hull(c: Ctx, len: number, wid: number, color: string, r = 3): void {
-  c.fillStyle = lin(c, 0, -wid / 2, 0, wid / 2, [
-    [0, shade(color, 0.35)],
-    [0.5, color],
-    [1, shade(color, -0.45)],
-  ]);
-  rr(c, -len / 2, -wid / 2, len, wid, r);
-  c.fill();
-  c.strokeStyle = shade(color, -0.6);
-  c.lineWidth = 1;
-  c.stroke();
-}
-
-function barrel(c: Ctx, x0: number, len: number, w: number, y = 0): void {
-  c.fillStyle = lin(c, 0, y - w / 2, 0, y + w / 2, [
-    [0, '#9aa0a6'],
-    [1, '#2d3035'],
-  ]);
-  c.fillRect(x0, y - w / 2, len, w);
-  c.fillStyle = '#1a1c1f';
-  c.fillRect(x0 + len - 2, y - w / 2 - 0.5, 2, w + 1);
-}
-
-function centered(size: number, draw: (c: Ctx) => void): HTMLCanvasElement {
-  const [cv, c] = canvas(size, size);
-  c.translate(size / 2, size / 2);
-  draw(c);
-  return cv;
-}
-
-function drawInfantry(c: Ctx, color: string, type: string, frame: number): void {
-  c.scale(1.35, 1.35);
-  const leg = frame === 0 ? 2 : frame === 1 ? -2 : 0;
-  c.fillStyle = '#2b2b26';
-  c.fillRect(-2 + leg, -3, 3, 2);
-  c.fillRect(-2 - leg, 1, 3, 2);
-  if (type === 'flamer') {
-    c.fillStyle = '#d0661c';
-    rr(c, -5, -2.5, 3, 5, 1);
-    c.fill();
-  }
-  c.fillStyle = shade(color, -0.1);
-  c.beginPath();
-  c.ellipse(0, 0, 3, 3.8, 0, 0, Math.PI * 2);
-  c.fill();
-  c.strokeStyle = shade(color, -0.6);
-  c.lineWidth = 0.8;
-  c.stroke();
-  // weapon
-  c.fillStyle = '#222';
-  if (type === 'rocketeer') {
-    c.fillStyle = '#556b2f';
-    c.fillRect(-3, -3.5, 10, 2.2);
-  } else if (type === 'engineer') {
-    c.fillStyle = '#ffd400';
-    c.fillRect(1, 1, 3, 3);
-  } else if (type === 'flamer') {
-    c.fillRect(1, 0.5, 6, 1.4);
-    c.fillStyle = '#ff7a1a';
-    c.fillRect(6.5, 0.4, 1.5, 1.6);
-  } else if (type === 'commando') {
-    c.fillRect(0, 0.5, 9, 1.2);
-  } else {
-    c.fillRect(1, 0.6, 6, 1.2);
-  }
-  // head / helmet
-  c.fillStyle = type === 'engineer' ? '#ffd400' : type === 'commando' ? '#1a1a1a' : shade(color, -0.35);
-  c.beginPath();
-  c.arc(0.5, 0, 2, 0, Math.PI * 2);
-  c.fill();
-  if (type === 'commando') {
-    c.fillStyle = '#d42020';
-    c.fillRect(-1.5, -0.6, 1.4, 1.2);
-  }
-}
-
-export function unitSprite(type: string, color: string): UnitSprite {
-  const key = `${type}|${color}`;
+export function unitSprite(type: string, color: string, faction: Faction = 'vanguard'): UnitSprite {
+  const def = UNITS[type];
+  const fac = def.faction ?? faction;
+  const key = `${type}|${color}|${fac}`;
   const hit = unitCache.get(key);
   if (hit) return hit;
-  const def = UNITS[type];
-  const size = Math.ceil(def.radius * 2.9);
+  const pal = palette(fac, color);
   let s: UnitSprite;
   if (def.cls === 'infantry') {
-    const frames = [0, 1, 2].map((f) => centered(size + 10, (c) => drawInfantry(c, color, type, f)));
-    s = { body: frames, turret: null, size: size + 10 };
+    const size = Math.ceil(def.radius * 2.9 * (def.hero ? 1.5 : 1.2)) + 12;
+    const frames = [0, 1, 2].map((f) => hires(size, (c) => drawInfantryFrame(c, type, pal, f)));
+    s = { body: frames, turret: null, size };
   } else {
-    let turret: HTMLCanvasElement | null = null;
-    const body = centered(size, (c) => {
-      switch (type) {
-        case 'lancer':
-          tracks(c, 26, 5, 6);
-          hull(c, 22, 14, color);
-          c.fillStyle = shade(color, -0.3);
-          c.fillRect(7, -6, 3, 12);
-          break;
-        case 'titan':
-          tracks(c, 34, 7, 8);
-          hull(c, 30, 18, color, 4);
-          c.fillStyle = shade(color, -0.3);
-          c.fillRect(10, -8, 4, 16);
-          c.fillStyle = '#ffcc33';
-          c.fillRect(-14, -1, 3, 2);
-          break;
-        case 'harvester':
-          tracks(c, 30, 6, 8);
-          c.fillStyle = lin(c, 0, -10, 0, 10, [
-            [0, '#d8c27a'],
-            [1, '#7a6a35'],
-          ]);
-          rr(c, -15, -9, 22, 18, 3);
-          c.fill();
-          c.fillStyle = 'rgba(80,255,140,0.55)';
-          rr(c, -12, -6, 14, 12, 2);
-          c.fill();
-          c.strokeStyle = '#2a2a1a';
-          c.lineWidth = 1;
-          for (let x = -10; x < 2; x += 3) {
-            c.beginPath();
-            c.moveTo(x, -6);
-            c.lineTo(x, 6);
-            c.stroke();
-          }
-          c.fillStyle = color;
-          c.fillRect(-15, -9, 22, 3);
-          c.fillStyle = '#444';
-          rr(c, 7, -8, 6, 16, 2);
-          c.fill();
-          c.fillStyle = '#9a9a9a';
-          for (let y = -8; y < 8; y += 3) c.fillRect(13, y, 3, 2);
-          break;
-        case 'raider':
-          c.fillStyle = '#111';
-          for (const [x, y] of [
-            [-7, -8],
-            [5, -8],
-            [-7, 5],
-            [5, 5],
-          ])
-            c.fillRect(x, y, 6, 3);
-          hull(c, 20, 11, color, 4);
-          c.strokeStyle = '#222';
-          c.lineWidth = 1.5;
-          c.strokeRect(-5, -4, 8, 8);
-          barrel(c, 0, 10, 2);
-          break;
-        case 'howitzer':
-          tracks(c, 24, 5, 5);
-          hull(c, 20, 11, color);
-          c.fillStyle = shade(color, -0.25);
-          rr(c, -6, -5, 10, 10, 2);
-          c.fill();
-          barrel(c, 0, 18, 3.5);
-          break;
-        case 'wraith':
-          tracks(c, 24, 4, 6);
-          c.fillStyle = lin(c, 0, -8, 0, 8, [
-            [0, '#4a4f57'],
-            [1, '#15171a'],
-          ]);
-          c.beginPath();
-          c.moveTo(13, 0);
-          c.lineTo(-11, -9);
-          c.lineTo(-8, 0);
-          c.lineTo(-11, 9);
-          c.closePath();
-          c.fill();
-          c.strokeStyle = color;
-          c.lineWidth = 1.5;
-          c.stroke();
-          c.fillStyle = '#26292e';
-          c.fillRect(-4, -8, 9, 3);
-          c.fillRect(-4, 5, 9, 3);
-          c.fillStyle = color;
-          c.fillRect(3, -8, 2, 3);
-          c.fillRect(3, 5, 2, 3);
-          break;
-      }
-    });
-    if (def.turret) {
-      turret = centered(size, (c) => {
-        if (type === 'titan') {
-          barrel(c, 2, 18, 3, -3);
-          barrel(c, 2, 18, 3, 3);
-          c.fillStyle = lin(c, 0, -8, 0, 8, [
-            [0, shade(color, 0.4)],
-            [1, shade(color, -0.4)],
-          ]);
-          rr(c, -9, -8, 16, 16, 4);
-          c.fill();
-          c.strokeStyle = shade(color, -0.6);
-          c.stroke();
-          c.fillStyle = '#3a3d42';
-          c.fillRect(-7, -12, 9, 4);
-          c.fillRect(-7, 8, 9, 4);
-          c.fillStyle = '#d33';
-          for (let i = 0; i < 3; i++) {
-            c.fillRect(-6 + i * 3, -11, 1.5, 2);
-            c.fillRect(-6 + i * 3, 9, 1.5, 2);
-          }
-        } else {
-          barrel(c, 2, 14, 3);
-          c.fillStyle = rad(c, -1, -1, 1, 7, [
-            [0, shade(color, 0.45)],
-            [1, shade(color, -0.35)],
-          ]);
-          c.beginPath();
-          c.arc(0, 0, 6, 0, Math.PI * 2);
-          c.fill();
-          c.strokeStyle = shade(color, -0.6);
-          c.lineWidth = 1;
-          c.stroke();
-          c.fillStyle = shade(color, -0.5);
-          c.beginPath();
-          c.arc(-2, 0, 1.6, 0, Math.PI * 2);
-          c.fill();
-        }
-      });
-    }
-    s = { body: [body], turret, size };
+    // Long barrels and wings poke out of the hull, so leave generous room.
+    const size = Math.ceil(def.radius * 3.4);
+    const frames = Array.from({ length: bodyFrames(type) }, (_, f) => hires(size, (c) => drawBody(c, type, pal, f)));
+    const turret = def.turret && hasTurretArt(type) ? hires(size, (c) => drawTurret(c, type, pal)) : null;
+    s = { body: frames, turret, size };
+  }
+  if (def.air) {
+    const [sh, sc] = canvas(s.size * RES, s.size * RES);
+    sc.drawImage(s.body[s.body.length > 2 ? 2 : 0], 0, 0);
+    sc.globalCompositeOperation = 'source-in';
+    sc.fillStyle = '#000';
+    sc.fillRect(0, 0, s.size * RES, s.size * RES);
+    s.shadow = sh;
   }
   unitCache.set(key, s);
   return s;
@@ -307,7 +96,7 @@ function slab(c: Ctx, W: number, H: number): void {
     c.fillRect(x, y, 2, 2);
 }
 
-function block(c: Ctx, x: number, y: number, w: number, h: number, color: string, lift = 6): void {
+function block(c: Ctx, x: number, y: number, w: number, h: number, color: string, lift = 6, team?: string): void {
   c.fillStyle = 'rgba(0,0,0,0.35)';
   rr(c, x + 3, y + 4, w, h, 3);
   c.fill();
@@ -323,6 +112,12 @@ function block(c: Ctx, x: number, y: number, w: number, h: number, color: string
   c.strokeStyle = shade(color, -0.6);
   c.lineWidth = 1;
   c.stroke();
+  if (team) {
+    c.fillStyle = team;
+    c.fillRect(x + 2, y + 2, w - 4, 3);
+    c.fillStyle = 'rgba(255,255,255,0.25)';
+    c.fillRect(x + 2, y + 2, w - 4, 1);
+  }
 }
 
 function hazard(c: Ctx, x: number, y: number, w: number, h: number): void {
@@ -355,11 +150,11 @@ function light(c: Ctx, x: number, y: number, col: string): void {
   c.fill();
 }
 
-const BUILDING_DRAW: Record<string, (c: Ctx, W: number, H: number, col: string) => void> = {
-  conyard(c, W, H, col) {
+const BUILDING_DRAW: Record<string, (c: Ctx, W: number, H: number, col: string, base: string) => void> = {
+  conyard(c, W, H, col, base) {
     slab(c, W, H);
-    block(c, 8, 10, 56, 54, col, 8);
-    c.strokeStyle = shade(col, -0.45);
+    block(c, 8, 10, 56, 54, base, 8, col);
+    c.strokeStyle = shade(base, -0.45);
     for (let x = 16; x < 60; x += 10) {
       c.beginPath();
       c.moveTo(x, 13);
@@ -387,7 +182,7 @@ const BUILDING_DRAW: Record<string, (c: Ctx, W: number, H: number, col: string) 
     light(c, 79, 16, '#ff3030');
     light(c, 12, 14, col);
   },
-  power(c, W, H, col) {
+  power(c, W, H, col, base) {
     slab(c, W, H);
     for (const x of [19, 45]) {
       c.fillStyle = 'rgba(0,0,0,0.35)';
@@ -409,12 +204,12 @@ const BUILDING_DRAW: Record<string, (c: Ctx, W: number, H: number, col: string) 
       c.arc(x, 21, 7, 0, Math.PI * 2);
       c.fill();
     }
-    block(c, 8, 38, 48, 20, col, 5);
+    block(c, 8, 38, 48, 20, base, 5, col);
     c.fillStyle = '#7ff7ff';
     c.fillRect(14, 44, 36, 3);
     light(c, 32, 45, '#4fe8ff');
   },
-  refinery(c, W, H, col) {
+  refinery(c, W, H, col, base) {
     slab(c, W, H);
     for (const [x, y] of [
       [22, 22],
@@ -436,14 +231,14 @@ const BUILDING_DRAW: Record<string, (c: Ctx, W: number, H: number, col: string) 
       c.lineWidth = 2;
       c.stroke();
     }
-    block(c, 44, 10, 44, 56, col, 7);
+    block(c, 44, 10, 44, 56, base, 7, col);
     c.fillStyle = shade(col, -0.4);
     c.fillRect(50, 18, 32, 4);
     c.fillRect(50, 28, 32, 4);
     hazard(c, 30, H - 18, 36, 14);
     light(c, 84, 14, '#5dff8a');
   },
-  barracks(c, W, H, col) {
+  barracks(c, W, H, col, base) {
     c.fillStyle = '#a08a5a';
     rr(c, 1, 1, W - 2, H - 2, 10);
     c.fill();
@@ -452,7 +247,7 @@ const BUILDING_DRAW: Record<string, (c: Ctx, W: number, H: number, col: string) 
     c.setLineDash([5, 3]);
     c.stroke();
     c.setLineDash([]);
-    block(c, 10, 10, 44, 38, col, 7);
+    block(c, 10, 10, 44, 38, base, 7, col);
     c.strokeStyle = shade(col, 0.4);
     c.lineWidth = 2;
     c.beginPath();
@@ -466,22 +261,24 @@ const BUILDING_DRAW: Record<string, (c: Ctx, W: number, H: number, col: string) 
     c.fillStyle = col;
     c.fillRect(54, 4, 9, 6);
   },
-  factory(c, W, H, col) {
+  factory(c, W, H, col, base) {
     slab(c, W, H);
     c.fillStyle = 'rgba(0,0,0,0.35)';
     rr(c, 10, 10, 80, 66, 8);
     c.fill();
     c.fillStyle = lin(c, 6, 0, 86, 0, [
-      [0, shade(col, -0.4)],
-      [0.3, shade(col, 0.25)],
-      [0.6, col],
-      [1, shade(col, -0.5)],
+      [0, shade(base, -0.4)],
+      [0.3, shade(base, 0.25)],
+      [0.6, base],
+      [1, shade(base, -0.5)],
     ]);
     rr(c, 6, 6, 80, 62, 8);
     c.fill();
-    c.strokeStyle = shade(col, -0.6);
+    c.strokeStyle = shade(base, -0.6);
     c.lineWidth = 1;
     c.stroke();
+    c.fillStyle = col;
+    c.fillRect(10, 8, 72, 4);
     for (let y = 14; y < 64; y += 8) {
       c.strokeStyle = 'rgba(0,0,0,0.25)';
       c.beginPath();
@@ -495,9 +292,9 @@ const BUILDING_DRAW: Record<string, (c: Ctx, W: number, H: number, col: string) 
     light(c, 12, 12, '#ffcc33');
     light(c, 80, 12, '#ffcc33');
   },
-  radar(c, W, H, col) {
+  radar(c, W, H, col, base) {
     slab(c, W, H);
-    block(c, 8, 26, 48, 30, col, 6);
+    block(c, 8, 26, 48, 30, base, 6, col);
     c.fillStyle = '#333';
     c.fillRect(28, 14, 8, 16);
     light(c, 50, 30, '#5df');
@@ -518,7 +315,7 @@ const BUILDING_DRAW: Record<string, (c: Ctx, W: number, H: number, col: string) 
     c.lineWidth = 1.5;
     c.stroke();
   },
-  bastion(c, W, H, col) {
+  bastion(c, W, H, col, base) {
     c.fillStyle = 'rgba(0,0,0,0.35)';
     c.fillRect(5, 6, W - 6, H - 6);
     c.fillStyle = lin(c, 0, 0, W, H, [
@@ -530,7 +327,7 @@ const BUILDING_DRAW: Record<string, (c: Ctx, W: number, H: number, col: string) 
     c.lineWidth = 2;
     c.strokeRect(3, 3, W - 6, H - 6);
   },
-  spire(c, W, H, col) {
+  spire(c, W, H, col, base) {
     // Drawn taller than its footprint; the sprite is offset upwards.
     const cx = W / 2;
     c.fillStyle = 'rgba(0,0,0,0.4)';
@@ -555,7 +352,7 @@ const BUILDING_DRAW: Record<string, (c: Ctx, W: number, H: number, col: string) 
     c.stroke();
     light(c, cx, 6, '#ff2a2a');
   },
-  tech(c, W, H, col) {
+  tech(c, W, H, col, base) {
     slab(c, W, H);
     c.fillStyle = 'rgba(0,0,0,0.35)';
     c.beginPath();
@@ -580,7 +377,7 @@ const BUILDING_DRAW: Record<string, (c: Ctx, W: number, H: number, col: string) 
     c.stroke();
     light(c, W / 2 + 12, H / 2 - 20, '#ff5050');
   },
-  ion(c, W, H, col) {
+  ion(c, W, H, col, base) {
     slab(c, W, H);
     for (let r = 26; r > 4; r -= 5) {
       c.fillStyle = r % 10 === 6 ? '#c8ced6' : '#7b838d';
@@ -602,7 +399,7 @@ const BUILDING_DRAW: Record<string, (c: Ctx, W: number, H: number, col: string) 
     c.arc(W / 2, H / 2, 27, 0, Math.PI * 2);
     c.stroke();
   },
-  silo(c, W, H, col) {
+  silo(c, W, H, col, base) {
     slab(c, W, H);
     hazard(c, 6, 6, W - 12, H - 12);
     c.fillStyle = '#2a2d31';
@@ -633,8 +430,8 @@ const BUILDING_DRAW: Record<string, (c: Ctx, W: number, H: number, col: string) 
   },
 };
 
-export function buildingSprite(type: string, color: string): BuildingSprite {
-  const key = `${type}|${color}`;
+export function buildingSprite(type: string, color: string, faction: Faction = 'vanguard'): BuildingSprite {
+  const key = `${type}|${color}|${faction}`;
   const hit = buildingCache.get(key);
   if (hit) return hit;
   const def = BUILDINGS[type];
@@ -643,7 +440,7 @@ export function buildingSprite(type: string, color: string): BuildingSprite {
   // The spire towers above its footprint, so its sprite is taller and offset upwards.
   const extraTop = type === 'spire' ? 34 : 0;
   const [cv, c] = canvas(W + 8, H + 8 + extraTop);
-  (BUILDING_DRAW[type] ?? BUILDING_DRAW.wall)(c, W, H + extraTop, color);
+  (BUILDING_DRAW[type] ?? BUILDING_DRAW.wall)(c, W, H + extraTop, color, structureBase(BUILDINGS[type].faction ?? faction));
   const s = { img: cv, ox: 0, oy: -extraTop };
   buildingCache.set(key, s);
   return s;
@@ -816,33 +613,82 @@ export function treeSprite(variant: number): HTMLCanvasElement {
 
 // ------------------------------------------------------------------ icons
 
-/** Sidebar cameo for a buildable item. */
-export function iconFor(id: string, color: string): HTMLCanvasElement {
-  const key = `icon|${id}|${color}`;
+/**
+ * Sidebar cameo for a buildable item: the unit posed at a three-quarter angle
+ * against a dusty battlefield backdrop, in a bevelled metal frame.
+ */
+export function iconFor(id: string, color: string, faction: Faction = 'vanguard'): HTMLCanvasElement {
+  const key = `icon|${id}|${color}|${faction}`;
   if (misc.has(key)) return misc.get(key)!;
   const [cv, c] = canvas(64, 48);
+  const ember = (UNITS[id]?.faction ?? BUILDINGS[id]?.faction ?? faction) === 'ember';
+  // Hazy sky over cracked desert ground.
   c.fillStyle = lin(c, 0, 0, 0, 48, [
-    [0, '#2a3238'],
-    [1, '#0d1114'],
+    [0, ember ? '#3a2c2a' : '#6d5e43'],
+    [0.55, ember ? '#5a443a' : '#9a8460'],
+    [0.56, ember ? '#3d2f28' : '#6f5a3c'],
+    [1, ember ? '#1f1714' : '#3d3020'],
   ]);
   c.fillRect(0, 0, 64, 48);
-  if (UNITS[id]) {
-    const s = unitSprite(id, color);
-    const scale = Math.min(2.4, 40 / s.size);
+  c.strokeStyle = 'rgba(0,0,0,0.25)';
+  c.lineWidth = 0.8;
+  for (let i = 0; i < 6; i++) {
+    c.beginPath();
+    c.moveTo((i * 13) % 64, 30 + ((i * 7) % 18));
+    c.lineTo(((i * 13) % 64) + 9, 33 + ((i * 11) % 14));
+    c.stroke();
+  }
+  const u = UNITS[id];
+  if (u && u.cls === 'infantry') {
+    // Standing portrait with a ground shadow.
+    c.fillStyle = 'rgba(0,0,0,0.35)';
+    c.beginPath();
+    c.ellipse(33, 45, 12, 3, 0, 0, Math.PI * 2);
+    c.fill();
     c.save();
-    c.translate(32, 26);
-    c.rotate(-Math.PI / 6);
+    c.translate(32, 22);
+    c.scale(0.95, 0.95);
+    drawInfantryPortrait(c, id, palette(u.faction ?? faction, color));
+    c.restore();
+  } else if (u) {
+    const s = unitSprite(id, color, faction);
+    const pal = palette(u.faction ?? faction, color);
+    // Infantry art is tiny, so zoom it right in; draw the vector art directly so it stays sharp.
+    const scale = u.cls === 'infantry' ? (u.hero ? 2.6 : 3.1) : Math.min(2.6, 54 / s.size) * 1.2;
+    // Fake a three-quarter view: rotate, then squash vertically.
+    c.save();
+    c.translate(32, u.air ? 22 : 26);
+    c.scale(1, 0.72);
+    c.fillStyle = 'rgba(0,0,0,0.35)';
+    c.beginPath();
+    c.ellipse(3, u.air ? 18 : 6, s.size * scale * 0.32, s.size * scale * 0.18, 0, 0, Math.PI * 2);
+    c.fill();
+    c.rotate(-Math.PI / 5);
     c.scale(scale, scale);
-    c.drawImage(s.body[0], -s.size / 2, -s.size / 2);
-    if (s.turret) c.drawImage(s.turret, -s.size / 2, -s.size / 2);
+    if (u.cls === 'infantry') drawInfantryFrame(c, id, pal, 2);
+    else {
+      drawBody(c, id, pal, 0);
+      if (s.turret) drawTurret(c, id, pal);
+    }
     c.restore();
   } else if (BUILDINGS[id]) {
-    const s = buildingSprite(id, color);
+    const s = buildingSprite(id, color, faction);
     const scale = Math.min(44 / s.img.height, 58 / s.img.width, 1.2);
     c.drawImage(s.img, 32 - (s.img.width * scale) / 2, 24 - (s.img.height * scale) / 2, s.img.width * scale, s.img.height * scale);
     const t = buildingTurret(id, color);
     if (t && id !== 'radar') c.drawImage(t, 32 - 15 * scale, 24 - 15 * scale, 30 * scale, 30 * scale);
   }
+  // Vignette and bevel frame.
+  c.fillStyle = rad(c, 32, 24, 18, 44, [
+    [0, 'rgba(0,0,0,0)'],
+    [1, 'rgba(0,0,0,0.55)'],
+  ]);
+  c.fillRect(0, 0, 64, 48);
+  c.strokeStyle = 'rgba(255,255,255,0.18)';
+  c.lineWidth = 1;
+  c.strokeRect(0.5, 0.5, 63, 47);
+  c.strokeStyle = 'rgba(0,0,0,0.6)';
+  c.strokeRect(1.5, 1.5, 61, 45);
   misc.set(key, cv);
   return cv;
 }

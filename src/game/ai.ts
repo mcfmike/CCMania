@@ -24,19 +24,42 @@ const TUNING: Record<Player['cfg']['difficulty'], Tuning> = {
   insane: { wave: 14, growth: 5, firstAttack: 150, interval: 70, refineries: 3, factories: 2, towers: 4, reserve: 0, superweapon: true, repair: true },
 };
 
+// Weighted build mixes; units the faction can't build are filtered out at pick time.
 const INFANTRY_MIX: [string, number][] = [
   ['rifleman', 4],
-  ['rocketeer', 3],
-  ['flamer', 2],
+  ['grenadier', 3],
+  ['dragoon', 3],
+  ['medic', 0.8],
+  ['cyborg', 2],
+  ['jumpjet', 1.5],
+  ['tactician', 0.6],
   ['engineer', 0.4],
-  ['commando', 0.6],
+  ['ghost', 0.5],
+  ['vega', 0.6],
+  ['ankha', 0.6],
 ];
 const VEHICLE_MIX: [string, number][] = [
-  ['lancer', 5],
+  ['badger', 2],
   ['raider', 2],
-  ['howitzer', 2],
-  ['titan', 3],
-  ['wraith', 3],
+  ['titan', 5],
+  ['raptor', 5],
+  ['apc', 2],
+  ['termite', 1.2],
+  ['mrls', 2],
+  ['artillery', 2],
+  ['disruptor', 2],
+  ['stealth', 2.5],
+  ['inferno', 2],
+  ['mammoth', 2.5],
+  ['repairbot', 0.6],
+  ['ecm', 0.5],
+  ['sensor', 0.3],
+];
+const AIR_MIX: [string, number][] = [
+  ['orca', 3],
+  ['cicada', 1.5],
+  ['harpy', 3],
+  ['banshee', 2],
 ];
 
 /** Skirmish opponent: builds a base, keeps harvesters busy and throws escalating waves at you. */
@@ -109,6 +132,7 @@ export class AI {
       ['guard', 2],
       [tower, Math.min(2, this.t.towers)],
       ['tech', 1],
+      ['airfield', 1],
       [sup, this.t.superweapon ? 1 : 0],
       ['refinery', this.t.refineries],
       ['factory', this.t.factories],
@@ -244,6 +268,11 @@ export class AI {
       const id = this.pick(VEHICLE_MIX);
       if (id) w.queueBuild(p, id);
     }
+    const aq = p.queues.aircraft;
+    if (aq.items.length < 1) {
+      const id = this.pick(AIR_MIX);
+      if (id) w.queueBuild(p, id);
+    }
   }
 
   private pick(mix: [string, number][]): string | null {
@@ -295,7 +324,7 @@ export class AI {
       if (rally && Math.hypot(u.x - rally.x, u.y - rally.y) > TILE * 5) w.commandMove([u.id], rally.x, rally.y, 'attackMove');
     }
 
-    const ready = units.filter((u) => !this.attackers.has(u.id) && (u.u.weapons.length || u.u.engineer));
+    const ready = units.filter((u) => !this.attackers.has(u.id) && (u.u.weapons.length || u.u.engineer || u.u.heal || u.u.jammer || u.u.detector));
     if (w.tick >= this.nextWaveAt && ready.length >= this.waveSize) {
       const base = this.baseCenter();
       const target = this.nearestEnemyBuilding((base?.x ?? this.home.x) * TILE, (base?.y ?? this.home.y) * TILE, Infinity);

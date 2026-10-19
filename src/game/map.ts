@@ -65,8 +65,8 @@ export class GameMap {
   entities: MapEntity[] = [];
   /** Bumped whenever passability changes, used to invalidate flow fields. */
   version = 0;
-  private masks: (Uint8Array | null)[] = [null, null];
-  private maskVersion = [-1, -1];
+  private masks: (Uint8Array | null)[] = [null, null, null];
+  private maskVersion = [-1, -1, -1];
 
   /** 1 where the class can stand, cached per map version. */
   passMask(cls: PassClass): Uint8Array {
@@ -104,7 +104,8 @@ export class GameMap {
   }
 
   terrainPassable(t: T, cls: PassClass): boolean {
-    if (t === T.Rock || t === T.Water) return false;
+    if (t === T.Rock) return false;
+    if (t === T.Water) return cls === PassClass.Hover;
     if (t === T.Tree) return cls === PassClass.Infantry;
     return true;
   }

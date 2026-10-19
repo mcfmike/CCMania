@@ -17,9 +17,11 @@ To publish on GitHub Pages: go to Settings → Pages → Source: **GitHub Action
 
 ## What's in the box
 
-- **Two factions**:
-  - **Vanguard Accord**: Ion Cannon, Titan twin-cannon tank, Rocket Bastion.
-  - **Order of the Ember**: Doom Silo nuke, Wraith stealth tank, Spire of Light laser tower.
+- **Two factions**, styled after the classic desert-gold vs black-and-red rivalry:
+  - **Vanguard Accord** (gold camo): Light Infantry, Grenadier, Medic, Jumpjet, Ghost, hero **Vega**; Badger, Repair Bot, Titan walker, Hover MRLS, Disruptor sonic tank, Mammoth Tank; Orca VTOL and Cicada Bomber; Ion Cannon, Rocket Bastion.
+  - **Order of the Ember** (black and red): Light Infantry, Dragoon, Cyborg, Tactician, hero **Ankha**; Raider, Armored APC, Termite Mine, Raptor Tank, Artillery, Mobile ECM, Stealth Tank, Inferno Flametank; Harpy gunship and Banshee Fighter; Doom Silo nuke, Spire of Light.
+  - Both: Engineer, Harvester, Mobile Sensor Array (reveals cloaked units), M.C.V. (press `D` to deploy a new base).
+- **Air war**: aircraft fly over terrain and can only be hit by anti-air weapons (rockets, machine guns, missiles); hover units cross water.
 - **The C&C formula**: Construction Yard, power, refinery and harvesters, barracks, war factory, Comm Center radar, tech center, walls, sell and repair, rally points, veterancy, tank-crushes-infantry, engineers capturing buildings, commando C4.
 - **Modes**:
   - **Skirmish** against 1–3 AIs (Easy, Normal, Hard, ☠ Insane), as everyone vs you, free-for-all, or with an AI ally.
@@ -44,6 +46,7 @@ See [docs/DESIGN.md](docs/DESIGN.md) for the engine decision, the architecture a
 | `S` / `X` | Stop / scatter |
 | `Q` / `R` | Sell / repair mode |
 | `N` | Fire superweapon |
+| `D` | Deploy M.C.V. |
 | `H` / `Space` | Jump to base / last alert |
 | `Tab` | Cycle build tabs |
 | `+` / `-` | Game speed |

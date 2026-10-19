@@ -32,7 +32,7 @@ export class EditorScreen {
   private oreLevel = 7;
   private sym: Sym = 'none';
   private startIdx = 0;
-  private entityType = 'lancer';
+  private entityType = 'raptor';
   private entityOwner = 0;
   private grid = false;
   private undo: string[] = [];
@@ -780,15 +780,15 @@ export class EditorScreen {
     for (const e of m.entities) {
       const color = TEAM_COLORS[e.owner] ?? '#888';
       if (e.kind === 'building' && BUILDINGS[e.type]) {
-        const s = buildingSprite(e.type, color);
+        const s = buildingSprite(e.type, color, e.owner % 2 ? 'ember' : 'vanguard');
         ctx.drawImage(s.img, e.x * TILE + s.ox, e.y * TILE + s.oy);
       } else if (UNITS[e.type]) {
-        const s = unitSprite(e.type, color);
+        const s = unitSprite(e.type, color, e.owner % 2 ? 'ember' : 'vanguard');
         ctx.save();
         ctx.translate(e.x * TILE + 16, e.y * TILE + 16);
         ctx.rotate(Math.PI / 2);
-        ctx.drawImage(s.body[s.body.length > 1 ? 2 : 0], -s.size / 2, -s.size / 2);
-        if (s.turret) ctx.drawImage(s.turret, -s.size / 2, -s.size / 2);
+        ctx.drawImage(s.body[s.body.length > 2 ? 2 : 0], -s.size / 2, -s.size / 2, s.size, s.size);
+        if (s.turret) ctx.drawImage(s.turret, -s.size / 2, -s.size / 2, s.size, s.size);
         ctx.restore();
       }
     }

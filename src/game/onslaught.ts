@@ -7,15 +7,30 @@ import type { World } from './world';
 /** Unit pool unlocked as the waves climb: [type, first wave, weight]. */
 const POOL: [string, number, number][] = [
   ['rifleman', 1, 5],
-  ['rocketeer', 1, 3],
-  ['raider', 2, 3],
-  ['flamer', 3, 2],
-  ['lancer', 3, 4],
-  ['howitzer', 6, 2],
+  ['grenadier', 1, 2],
+  ['dragoon', 1, 3],
+  ['badger', 2, 2],
+  ['raider', 2, 2],
+  ['apc', 3, 2],
+  ['raptor', 3, 3],
+  ['titan', 3, 3],
+  ['termite', 4, 2],
+  ['cyborg', 5, 2],
+  ['inferno', 5, 2],
+  ['harpy', 6, 2],
+  ['artillery', 6, 1.5],
+  ['mrls', 6, 1.5],
   ['engineer', 7, 1],
-  ['wraith', 8, 2],
-  ['titan', 10, 2],
-  ['commando', 12, 0.5],
+  ['jumpjet', 7, 1.5],
+  ['stealth', 8, 2],
+  ['orca', 8, 2],
+  ['disruptor', 9, 1.5],
+  ['mammoth', 10, 1.5],
+  ['banshee', 10, 1.5],
+  ['cicada', 12, 1],
+  ['ghost', 12, 0.4],
+  ['vega', 15, 0.3],
+  ['ankha', 15, 0.3],
 ];
 
 /**
@@ -62,7 +77,7 @@ export class Onslaught {
     const edges = this.spawnPoints(boss ? 3 : this.wave > 6 ? 2 : 1);
     let guard = 0;
     while (budget > 0 && guard++ < 400 && w.unitsOf(this.horde.index).length < w.unitCap()) {
-      const type = boss && w.rng.chance(0.5) ? (this.wave >= 10 ? 'titan' : 'lancer') : this.pick(pool);
+      const type = boss && w.rng.chance(0.5) ? (this.wave >= 10 ? 'mammoth' : 'raptor') : this.pick(pool);
       const def = UNITS[type];
       budget -= def.cost;
       const at = edges[spawned.length % edges.length];

@@ -218,6 +218,7 @@ export class GameScreen {
       ['structure', 'Build'],
       ['infantry', 'Infantry'],
       ['vehicle', 'Vehicles'],
+      ['aircraft', 'Air'],
     ] as [ProdCategory, string][]) {
       const t = el('button', { class: 'tab' }, label);
       t.onclick = () => {
@@ -250,7 +251,7 @@ export class GameScreen {
     for (const id of items) {
       const def = UNITS[id] ?? BUILDINGS[id];
       const btn = el('div', { class: 'build-btn' });
-      const icon = iconFor(id, me.color);
+      const icon = iconFor(id, me.color, me.faction);
       const img = el('canvas', { width: '64', height: '48' }) as HTMLCanvasElement;
       img.getContext('2d')!.drawImage(icon, 0, 0);
       const clock = el('div', { class: 'clock' });
@@ -404,6 +405,15 @@ export class GameScreen {
         el('div', { class: 'muted' }, `${owner.name} · HP ${Math.ceil(e.hp)}/${e.maxHp}${e.isUnit ? ` · Kills ${e.kills}` : ''}`),
       );
       if (e.isUnit && e.u.harvester) info.append(el('div', { class: 'muted' }, `Cargo ${e.cargo}/700 · ${e.harvestState}`));
+      if (e.isUnit && e.u.deploys && e.owner === this.world.humanIndex) {
+        const b = el('button', { class: 'btn small primary' }, 'Deploy (D)');
+        // The info panel re-renders every 100ms, so act on press rather than click.
+        b.onmousedown = (ev) => {
+          ev.preventDefault();
+          this.deploySelected();
+        };
+        info.append(b);
+      }
       return;
     }
     const counts = new Map<string, number>();
@@ -686,8 +696,8 @@ export class GameScreen {
         break;
       case 'tab': {
         ev.preventDefault();
-        const order: ProdCategory[] = ['structure', 'infantry', 'vehicle'];
-        this.tab = order[(order.indexOf(this.tab) + 1) % 3];
+        const order: ProdCategory[] = ['structure', 'infantry', 'vehicle', 'aircraft'];
+        this.tab = order[(order.indexOf(this.tab) + 1) % order.length];
         this.refreshGrid();
         break;
       }
@@ -704,6 +714,9 @@ export class GameScreen {
         break;
       case 'n':
         if (this.me.superReady) this.setMode('super');
+        break;
+      case 'd':
+        this.deploySelected();
         break;
     }
   };
@@ -783,13 +796,19 @@ export class GameScreen {
     return this.renderer.screenToWorld(ev.clientX - r.left, ev.clientY - r.top);
   }
 
+  private deploySelected(): void {
+    const mcvs = this.selectedUnits().filter((u) => u.u.deploys);
+    if (!mcvs.length) return;
+    this.audio.play(this.world.deploy(mcvs.map((u) => u.id)) ? 'place' : 'deny');
+  }
+
   private entityAt(x: number, y: number): Entity | undefined {
     const w = this.world;
     let best: Entity | undefined;
     let bd = Infinity;
     for (const e of w.entities) {
       if (e.dead || !w.visibleToHuman(e)) continue;
-      const d = e.isBuilding ? e.distTo(x, y) : Math.hypot(e.x - x, e.y - y) - e.radius - 4;
+      const d = e.isBuilding ? e.distTo(x, y) : Math.hypot(e.x - x, e.y - y + e.alt) - e.radius - 4;
       if (d <= 0 && (e.isUnit ? d - 100 : d) < bd) {
         bd = e.isUnit ? d - 100 : d;
         best = e;
@@ -1034,6 +1053,7 @@ export function controlsHelp(): HTMLElement {
     ['S / X', 'Stop / scatter'],
     ['Q / R', 'Sell / repair mode'],
     ['N', 'Fire superweapon'],
+    ['D', 'Deploy M.C.V. into a Construction Yard'],
     ['H / Space', 'Jump to base / last alert'],
     ['Tab', 'Cycle build tabs'],
     ['+ / -', 'Game speed'],

@@ -59,6 +59,10 @@ export class Entity {
   cloaked = false;
   detected = false;
   flash = 0;
+  /** Defence shut down by an enemy ECM. */
+  jammed = false;
+  /** Inside a friendly Tactician's aura. */
+  inspired = false;
 
   // Harvester state
   cargo = 0;
@@ -105,6 +109,13 @@ export class Entity {
   }
   get isUnit(): boolean {
     return this.kind === 'unit';
+  }
+  /** Flying altitude in px (0 on the ground). */
+  get alt(): number {
+    return this.kind === 'unit' ? ((this.def as UnitDef).air ?? 0) : 0;
+  }
+  get isAir(): boolean {
+    return this.alt > 0;
   }
   get isBuilding(): boolean {
     return this.kind === 'building';
@@ -162,6 +173,7 @@ export class Player {
     structure: new ProdQueue(),
     infantry: new ProdQueue(),
     vehicle: new ProdQueue(),
+    aircraft: new ProdQueue(),
   };
   superCharge = 0;
   superReady = false;
@@ -171,7 +183,7 @@ export class Player {
   owned: Record<string, number> = {};
   unitCount = 0;
   unitsByType: Record<string, number> = {};
-  primary: Record<'infantry' | 'vehicle', number> = { infantry: 0, vehicle: 0 };
+  primary: Record<'infantry' | 'vehicle' | 'aircraft', number> = { infantry: 0, vehicle: 0, aircraft: 0 };
   visible: Uint8Array;
   explored: Uint8Array;
   buildSpeed = 1;
@@ -225,7 +237,8 @@ export type FxKind =
   | 'sparkle'
   | 'sell'
   | 'capture'
-  | 'c4';
+  | 'c4'
+  | 'sonic';
 
 export type GameEvent =
   | { t: 'sfx'; name: string; x: number; y: number }

@@ -3,7 +3,8 @@ import { PassClass } from '../src/game/constants';
 import { parseMapJson } from '../src/game/mapio';
 import type { MapData } from '../src/game/map';
 import { buildField } from '../src/game/pathfinding';
-import { TICK_RATE } from '../src/game/constants';
+import { TICK_RATE, TILE } from '../src/game/constants';
+import { UNITS } from '../src/game/defs';
 import { GameMap } from '../src/game/map';
 import { BUILTIN_MAPS, DEFAULT_GEN, generateMap } from '../src/game/mapgen';
 import { World, type GameConfig } from '../src/game/world';
@@ -107,5 +108,59 @@ describe('hand-made maps in /maps', () => {
     const w = new World(map, aiConfig(map.starts.length));
     for (let i = 0; i < 60 * TICK_RATE; i++) w.step();
     expect(w.buildings.length).toBeGreaterThan(map.starts.length);
+  });
+});
+
+describe('new roster mechanics', () => {
+  function duel() {
+    const map = generateMap({ ...DEFAULT_GEN, seed: 11 });
+    return new World(map, aiConfig(2));
+  }
+
+  it('MCVs deploy into a Construction Yard', () => {
+    const w = duel();
+    const s = w.map.starts[0];
+    const mcv = w.spawnNear(0, UNITS.mcv, s.x, s.y + 6)!;
+    w.step();
+    const before = w.players[0].owned.conyard;
+    // Find a clear spot by trying a few positions.
+    let deployed = 0;
+    for (let dx = -6; dx <= 6 && !deployed; dx += 3) {
+      mcv.x = (s.x + dx) * TILE + 16;
+      mcv.y = (s.y + 7) * TILE + 16;
+      w.step();
+      deployed = w.deploy([mcv.id]);
+    }
+    expect(deployed).toBe(1);
+    expect(w.players[0].owned.conyard).toBe(before + 1);
+  });
+
+  it('medics heal wounded infantry', () => {
+    const w = duel();
+    const s = w.map.starts[0];
+    const hurt = w.spawnNear(0, UNITS.rifleman, s.x + 4, s.y + 5)!;
+    w.spawnNear(0, UNITS.medic, s.x + 5, s.y + 5);
+    hurt.hp = 10;
+    for (let i = 0; i < 4 * TICK_RATE; i++) w.step();
+    expect(hurt.hp).toBeGreaterThan(30);
+  });
+
+  it('hover units can cross water, tanks cannot', () => {
+    const w = duel();
+    const water = w.map.terrain.indexOf(4);
+    expect(water).toBeGreaterThanOrEqual(0);
+    expect(w.map.passMask(PassClass.Hover)[water]).toBe(1);
+    expect(w.map.passMask(PassClass.Vehicle)[water]).toBe(0);
+  });
+
+  it('ground-only weapons cannot target aircraft', () => {
+    const w = duel();
+    const s = w.map.starts[0];
+    const orca = w.spawnNear(0, UNITS.orca, s.x + 4, s.y + 4)!;
+    const tank = w.spawnNear(1, UNITS.raptor, s.x + 5, s.y + 4)!;
+    const aa = w.spawnNear(1, UNITS.dragoon, s.x + 5, s.y + 5)!;
+    w.step();
+    expect(w.canHit(tank, orca)).toBe(false);
+    expect(w.canHit(aa, orca)).toBe(true);
   });
 });

@@ -1,7 +1,21 @@
 import { AI } from './ai';
 import { Onslaught } from './onslaught';
 import { DT, PassClass, TICK_RATE, TILE } from './constants';
-import { ARMOR_INDEX, BUILDINGS, SUPER_CHARGE, UNITS, categoryOf, type BuildingDef, type ProdCategory, type UnitDef, type WeaponDef } from './defs';
+import {
+  ARMOR_INDEX,
+  BUILDINGS,
+  SUPER_CHARGE,
+  UNITS,
+  categoryOf,
+  hitsAir,
+  hitsGround,
+  producerOf,
+  type BuildingDef,
+  type Faction,
+  type ProdCategory,
+  type UnitDef,
+  type WeaponDef,
+} from './defs';
 import { Entity, Player, type FxKind, type GameEvent, type Order, type PlayerConfig, resetEntityIds } from './entity';
 import { ORE_MAX, T, type GameMap } from './map';
 import { FlowCache, findNearestCell, nearestPassable, nextStep } from './pathfinding';
@@ -20,7 +34,10 @@ export interface GameConfig {
 }
 
 export interface Projectile {
-  kind: 'shell' | 'rocket' | 'artillery';
+  kind: 'shell' | 'rocket' | 'artillery' | 'bomb' | 'plasma';
+  /** Visual altitude at the start / end of the flight. */
+  sz: number;
+  tz: number;
   owner: number;
   srcId: number;
   targetId: number;
@@ -42,6 +59,17 @@ export type GameResult = 'playing' | 'victory' | 'defeat';
 
 const HARVEST_CAP = 700;
 const SCOOP = 25;
+
+/** Starting armies per faction: [main tank, anti-armour infantry, artillery, scout]. */
+const STARTER: Record<Faction, { tank: string; at: string; arty: string; scout: string }> = {
+  vanguard: { tank: 'titan', at: 'grenadier', arty: 'mrls', scout: 'badger' },
+  ember: { tank: 'raptor', at: 'dragoon', arty: 'artillery', scout: 'raider' },
+};
+
+export function passClassOf(def: UnitDef): PassClass {
+  if (def.cls === 'infantry') return PassClass.Infantry;
+  return def.hover ? PassClass.Hover : PassClass.Vehicle;
+}
 
 const DIFFICULTY = {
   easy: { build: 0.6, income: 0.8 },
@@ -136,18 +164,19 @@ export class World {
       p.credits = this.cfg.startCredits * (!p.human && p.cfg.difficulty === 'insane' ? 2 : 1);
       const s = starts[this.startOf[p.index]];
       this.createBuilding(p.index, BUILDINGS.conyard, s.x - 1, s.y - 1, true);
+      const st = STARTER[p.faction];
       const army: [string, number][] = this.cfg.mania
         ? [
-            ['lancer', 6],
+            [st.tank, 6],
             ['rifleman', 8],
-            ['rocketeer', 4],
-            ['howitzer', 2],
-            ['raider', 3],
+            [st.at, 4],
+            [st.arty, 2],
+            [st.scout, 3],
           ]
         : [
             ['rifleman', 3],
-            ['rocketeer', 1],
-            ['lancer', 1],
+            [st.at, 1],
+            [st.tank, 1],
           ];
       // Spread the starting army out in rows in front of the Construction Yard.
       let slot = 0;
@@ -237,7 +266,17 @@ export class World {
   }
 
   passClass(e: Entity): PassClass {
-    return e.isUnit && e.u.cls === 'infantry' ? PassClass.Infantry : PassClass.Vehicle;
+    return e.isUnit ? passClassOf(e.u) : PassClass.Vehicle;
+  }
+
+  /** Can this weapon engage that target (air vs ground)? */
+  weaponHits(w: WeaponDef, t: Entity): boolean {
+    return t.isAir ? hitsAir(w) : hitsGround(w);
+  }
+
+  /** Can the entity hurt the target with any of its weapons? */
+  canHit(e: Entity, t: Entity): boolean {
+    return this.weaponsOf(e).some((w) => this.weaponHits(w, t));
   }
 
   buildingsOf(owner: number): Entity[] {
@@ -277,8 +316,7 @@ export class World {
   }
 
   spawnNear(owner: number, def: UnitDef, cx: number, cy: number): Entity | null {
-    const cls = def.cls === 'infantry' ? PassClass.Infantry : PassClass.Vehicle;
-    const c = nearestPassable(this.map, cx, cy, cls, 16);
+    const c = nearestPassable(this.map, cx, cy, passClassOf(def), 16);
     if (!c) return null;
     const jitter = def.cls === 'infantry' ? 8 : 2;
     const e = new Entity(def, owner, c.x * TILE + TILE / 2 + this.rng.range(-jitter, jitter), c.y * TILE + TILE / 2 + this.rng.range(-jitter, jitter));
@@ -343,12 +381,11 @@ export class World {
   }
 
   private producerCount(p: Player, cat: ProdCategory): number {
-    if (cat === 'structure') return p.owned.conyard ?? 0;
-    return p.owned[cat === 'infantry' ? 'barracks' : 'factory'] ?? 0;
+    return p.owned[producerOf(cat)] ?? 0;
   }
 
   private updateProduction(p: Player): void {
-    for (const cat of ['structure', 'infantry', 'vehicle'] as ProdCategory[]) {
+    for (const cat of ['structure', 'infantry', 'vehicle', 'aircraft'] as ProdCategory[]) {
       const q = p.queues[cat];
       if (!q.items.length || q.ready || q.onHold) continue;
       const producers = this.producerCount(p, cat);
@@ -383,8 +420,8 @@ export class World {
   }
 
   private spawnProduced(p: Player, def: UnitDef): boolean {
-    const type = def.cls === 'infantry' ? 'barracks' : 'factory';
-    const key = def.cls === 'infantry' ? 'infantry' : 'vehicle';
+    const key = def.cls;
+    const type = producerOf(key);
     let prod = this.get(p.primary[key]);
     if (!prod || prod.owner !== p.index || prod.type !== type) {
       prod = this.buildings.find((b) => !b.dead && b.owner === p.index && b.type === type);
@@ -405,7 +442,7 @@ export class World {
     // No units in the footprint.
     const near = this.spatial.query((tx + def.w / 2) * TILE, (ty + def.h / 2) * TILE, (Math.max(def.w, def.h) * TILE) / 2 + TILE, this.tmp);
     for (const e of near) {
-      if (!e.isUnit) continue;
+      if (!e.isUnit || e.isAir) continue;
       const cx = Math.floor(e.x / TILE);
       const cy = Math.floor(e.y / TILE);
       if (cx >= tx && cx < tx + def.w && cy >= ty && cy < ty + def.h) return false;
@@ -484,7 +521,7 @@ export class World {
     const tcy = Math.floor(y / TILE);
     for (const u of us) {
       const cls = this.passClass(u);
-      const goal = nearestPassable(this.map, tcx, tcy, cls, 20) ?? { x: tcx, y: tcy };
+      const goal = u.isAir ? { x: tcx, y: tcy } : (nearestPassable(this.map, tcx, tcy, cls, 20) ?? { x: tcx, y: tcy });
       let ox = u.x - cx;
       let oy = u.y - cy;
       const ol = Math.hypot(ox, oy);
@@ -494,7 +531,7 @@ export class World {
       }
       let ex = goal.x * TILE + TILE / 2 + (goal.x === tcx && goal.y === tcy ? x - (tcx * TILE + TILE / 2) : 0) + ox * 0.8;
       let ey = goal.y * TILE + TILE / 2 + (goal.x === tcx && goal.y === tcy ? y - (tcy * TILE + TILE / 2) : 0) + oy * 0.8;
-      if (!this.map.passable(Math.floor(ex / TILE), Math.floor(ey / TILE), cls)) {
+      if (!u.isAir && !this.map.passable(Math.floor(ex / TILE), Math.floor(ey / TILE), cls)) {
         ex = goal.x * TILE + TILE / 2;
         ey = goal.y * TILE + TILE / 2;
       }
@@ -515,7 +552,7 @@ export class World {
         u.order = this.mkOrder('enter', t.x, t.y, t.id);
         continue;
       }
-      if (!u.u.weapons.length) continue;
+      if (!this.canHit(u, t)) continue;
       u.order = this.mkOrder('attack', t.x, t.y, t.id);
       u.targetId = t.id;
     }
@@ -529,6 +566,40 @@ export class World {
       u.targetId = 0;
       if (u.u.harvester) u.harvestState = 'wait';
     }
+  }
+
+  /** Deploy MCVs into Construction Yards where there is room. Returns how many deployed. */
+  deploy(ids: number[]): number {
+    let n = 0;
+    for (const id of ids) {
+      const u = this.get(id);
+      if (!u || !u.isUnit || !u.u.deploys) continue;
+      const tx = Math.floor(u.x / TILE) - 1;
+      const ty = Math.floor(u.y / TILE) - 1;
+      let ok = true;
+      for (let y = ty; y < ty + 3 && ok; y++) for (let x = tx; x < tx + 3 && ok; x++) ok = this.map.buildable(x, y);
+      if (ok) {
+        for (const o of this.spatial.query(u.x, u.y, TILE * 2.5, this.tmp)) {
+          if (o === u || !o.isUnit || o.isAir) continue;
+          const cx = Math.floor(o.x / TILE);
+          const cy = Math.floor(o.y / TILE);
+          if (cx >= tx && cx < tx + 3 && cy >= ty && cy < ty + 3) ok = false;
+        }
+      }
+      if (!ok) {
+        this.eva(u.owner, 'nodeploy', 'Cannot deploy here', 2);
+        continue;
+      }
+      const p = this.players[u.owner];
+      u.dead = true;
+      p.unitCount--;
+      p.unitsByType[u.type] = (p.unitsByType[u.type] ?? 1) - 1;
+      this.createBuilding(u.owner, BUILDINGS.conyard, tx, ty);
+      this.sfx('place', u.x, u.y);
+      this.eva(u.owner, 'deploy', 'Construction Yard deployed', 1);
+      n++;
+    }
+    return n;
   }
 
   orderHarvest(e: Entity, oreX = -1, oreY = -1): void {
@@ -820,12 +891,30 @@ export class World {
   }
 
   private updateDetection(): void {
+    // Sensor arrays reveal cloaked enemies, ECMs jam defences, Tacticians inspire.
+    for (const e of this.entities) {
+      e.jammed = false;
+      e.inspired = false;
+    }
+    for (const s of this.units) {
+      if (s.dead) continue;
+      const d = s.u;
+      if (!d.detector && !d.jammer && !d.aura) continue;
+      const r = Math.max(d.detector ?? 0, d.jammer ?? 0, d.aura ?? 0);
+      for (const n of this.spatial.query(s.x, s.y, r * TILE, [])) {
+        const dist = n.distTo(s.x, s.y);
+        const enemy = this.isEnemy(s.owner, n.owner);
+        if (d.jammer && enemy && n.isBuilding && n.b.weapon && dist <= d.jammer * TILE) n.jammed = true;
+        if (d.aura && !enemy && n.isUnit && n !== s && dist <= d.aura * TILE) n.inspired = true;
+      }
+    }
     for (const u of this.units) {
       if (u.dead || !u.cloaked) {
         u.detected = false;
         continue;
       }
-      u.detected = false;
+      u.detected = this.units.some((s) => !s.dead && s.u.detector && this.isEnemy(s.owner, u.owner) && Math.hypot(s.x - u.x, s.y - u.y) <= s.u.detector * TILE);
+      if (u.detected) continue;
       const near = this.spatial.query(u.x, u.y, TILE * 2.5, this.tmp);
       for (const n of near) {
         if (this.isEnemy(n.owner, u.owner)) {
@@ -952,6 +1041,11 @@ export class World {
     }
 
     const o = e.order;
+    if (d.heal) {
+      if (!o) this.runHealer(e);
+      else this.runMoveOrder(e, o);
+      return;
+    }
     if (!o) this.idle(e);
     else if (o.type === 'move') this.runMoveOrder(e, o);
     else if (o.type === 'attackMove') this.runAttackMove(e, o);
@@ -964,6 +1058,37 @@ export class World {
       e.targetId = this.findTarget(e, this.maxRange(e))?.id ?? 0;
     }
     this.fireControl(e);
+  }
+
+  /** Medics and repair bots: find a hurt friend nearby and patch them up. */
+  private runHealer(e: Entity): void {
+    const h = e.u.heal!;
+    const fits = (t: Entity | undefined): t is Entity =>
+      !!t && !t.dead && t !== e && t.isUnit && !t.isAir && !this.isEnemy(e.owner, t.owner) && t.u.cls === h.cls && t.hp < t.maxHp;
+    let t = this.get(e.targetId);
+    if (!fits(t)) {
+      e.targetId = 0;
+      if (this.tick % 10 !== e.id % 10) return;
+      let bd = Infinity;
+      for (const n of this.spatial.query(e.x, e.y, e.sight * TILE, this.tmp)) {
+        if (!fits(n)) continue;
+        const d = Math.hypot(n.x - e.x, n.y - e.y);
+        if (d < bd) {
+          bd = d;
+          t = n;
+        }
+      }
+      if (!fits(t)) return;
+      e.targetId = t.id;
+    }
+    const d = Math.hypot(t.x - e.x, t.y - e.y) - e.radius - t.radius;
+    if (d > TILE * 0.6) {
+      this.chase(e, t);
+      return;
+    }
+    e.angle = Math.atan2(t.y - e.y, t.x - e.x);
+    t.hp = Math.min(t.maxHp, t.hp + h.rate * DT);
+    if (this.tick % 20 === 0) this.fx('sparkle', t.x, t.y, { color: '#7fd1ff' });
   }
 
   private maxRange(e: Entity): number {
@@ -1044,6 +1169,10 @@ export class World {
   }
 
   private chase(e: Entity, t: Entity): void {
+    if (e.isAir) {
+      this.steer(e, t.x, t.y, Math.hypot(t.x - e.x, t.y - e.y));
+      return;
+    }
     if (t.isBuilding) {
       const f = this.flow.getRect(this.map, t.tx, t.ty, t.b.w, t.b.h, this.passClass(e));
       this.followField(e, f, t.x, t.y);
@@ -1064,7 +1193,7 @@ export class World {
   }
 
   private inRangeAny(e: Entity, t: Entity): boolean {
-    for (const w of this.weaponsOf(e)) if (this.inRange(e, t, w)) return true;
+    for (const w of this.weaponsOf(e)) if (this.weaponHits(w, t) && this.inRange(e, t, w)) return true;
     return false;
   }
 
@@ -1078,12 +1207,13 @@ export class World {
   findTarget(e: Entity, rangeTiles: number): Entity | null {
     const weapons = this.weaponsOf(e);
     if (!weapons.length) return null;
-    const w = weapons[0];
     const near = this.spatial.query(e.x, e.y, rangeTiles * TILE + 16, this.tmp);
     let best: Entity | null = null;
     let bestScore = Infinity;
     for (const n of near) {
       if (!this.canTarget(e.owner, n)) continue;
+      const w = weapons.find((x) => this.weaponHits(x, n));
+      if (!w) continue;
       const d = n.distTo(e.x, e.y);
       if (d > rangeTiles * TILE + (n.isUnit ? n.radius : 0)) continue;
       if (w.minRange && d < w.minRange * TILE) continue;
@@ -1105,6 +1235,12 @@ export class World {
   private moveToward(e: Entity, gx: number, gy: number, ex: number, ey: number, groupRadius: number, moveId: number): 'arrived' | 'blocked' | 'moving' {
     const dist = Math.hypot(ex - e.x, ey - e.y);
     if (dist <= 3) return 'arrived';
+    if (e.isAir) {
+      // Aircraft fly straight; groups spread by their formation offsets.
+      if (dist < 6) return 'arrived';
+      this.steer(e, ex, ey, dist);
+      return 'moving';
+    }
     const f = this.flow.get(this.map, gx, gy, this.passClass(e));
     const r = this.followField(e, f, ex, ey);
     if (r === 'blocked') return 'blocked';
@@ -1173,7 +1309,8 @@ export class World {
       const maxTurn = d.turnRate * DT;
       e.angle += Math.max(-maxTurn, Math.min(maxTurn, diff));
       const ad = Math.abs(diff);
-      step = ad < 0.5 ? speed : ad < 1.3 ? speed * 0.35 : 0;
+      // Aircraft bank through turns instead of stopping to pivot.
+      step = e.isAir ? speed * (ad < 0.6 ? 1 : 0.45) : ad < 0.5 ? speed : ad < 1.3 ? speed * 0.35 : 0;
       dir = e.angle;
       if (!d.turret) e.turret = e.angle;
     }
@@ -1188,8 +1325,13 @@ export class World {
   }
 
   private tryMove(e: Entity, nx: number, ny: number): void {
-    const cls = this.passClass(e);
     const m = this.map;
+    if (e.isAir) {
+      e.x = Math.max(4, Math.min(m.w * TILE - 4, nx));
+      e.y = Math.max(4, Math.min(m.h * TILE - 4, ny));
+      return;
+    }
+    const cls = this.passClass(e);
     if (m.passable(Math.floor(nx / TILE), Math.floor(ny / TILE), cls)) {
       e.x = nx;
       e.y = ny;
@@ -1207,7 +1349,7 @@ export class World {
       if (e.dead) continue;
       this.spatial.query(e.x, e.y, e.radius + 16, near);
       for (const n of near) {
-        if (n.id <= e.id || !n.isUnit || n.dead) continue;
+        if (n.id <= e.id || !n.isUnit || n.dead || n.isAir !== e.isAir) continue;
         const dx = n.x - e.x;
         const dy = n.y - e.y;
         const dist = Math.hypot(dx, dy) || 0.01;
@@ -1228,7 +1370,7 @@ export class World {
   }
 
   private tryCrush(v: Entity, i: Entity): boolean {
-    if (!v.u.crusher || !v.moving || i.u.cls !== 'infantry' || !this.isEnemy(v.owner, i.owner)) return false;
+    if (!v.u.crusher || !v.moving || i.u.cls !== 'infantry' || i.u.uncrushable || i.isAir || v.isAir || !this.isEnemy(v.owner, i.owner)) return false;
     if (Math.hypot(v.x - i.x, v.y - i.y) > v.radius * 0.8) return false;
     this.fx('crush', i.x, i.y, { color: this.players[i.owner].color });
     this.sfx('crush', i.x, i.y);
@@ -1382,6 +1524,10 @@ export class World {
     if (!w) return;
     for (let i = 0; i < b.cooldown.length; i++) if (b.cooldown[i] > 0) b.cooldown[i]--;
     if (w.needsPower && p.lowPower) return;
+    if (b.jammed) {
+      if (this.tick % 40 === b.id % 40) this.fx('sparkle', b.x, b.y - 10, { color: '#7fd1ff' });
+      return;
+    }
     const t = this.get(b.targetId);
     if (!this.validTarget(b, t) || !this.inRange(b, t, w)) {
       b.targetId = 0;
@@ -1429,11 +1575,11 @@ export class World {
         if (--e.burstTimer[i] <= 0) {
           e.burstLeft[i]--;
           e.burstTimer[i] = 5;
-          this.fire(e, t, w, i);
+          if (this.weaponHits(w, t)) this.fire(e, t, w, i);
         }
         continue;
       }
-      if (e.cooldown[i] > 0 || !aimed || !this.inRange(e, t, w)) continue;
+      if (e.cooldown[i] > 0 || !aimed || !this.weaponHits(w, t) || !this.inRange(e, t, w)) continue;
       e.cooldown[i] = Math.round(w.cooldown * TICK_RATE * rof);
       if (w.burst && w.burst > 1) {
         e.burstLeft[i] = w.burst - 1;
@@ -1446,27 +1592,41 @@ export class World {
   private fire(e: Entity, t: Entity, w: WeaponDef, wi: number): void {
     e.lastFired = this.tick;
     e.cloaked = false;
-    const mult = e.rank === 2 ? 1.5 : e.rank === 1 ? 1.25 : 1;
+    const mult = (e.rank === 2 ? 1.5 : e.rank === 1 ? 1.25 : 1) * (e.inspired ? 1.25 : 1);
     const a = e.isUnit && e.u.cls === 'infantry' ? e.angle : e.turret;
     const reach = e.isUnit ? e.radius + 2 : TILE * 0.4;
     const side = wi === 1 || (e.burstLeft[wi] ?? 0) % 2 === 1 ? 4 : -4;
     const mx = e.x + Math.cos(a) * reach + Math.cos(a + Math.PI / 2) * (w.burst ? side : 0);
-    const my = e.y + Math.sin(a) * reach + Math.sin(a + Math.PI / 2) * (w.burst ? side : 0) - (e.isBuilding ? 8 : 0);
+    const my = e.y + Math.sin(a) * reach + Math.sin(a + Math.PI / 2) * (w.burst ? side : 0) - (e.isBuilding ? 8 : 0) - e.alt;
     this.sfx(w.sound, mx, my);
     const jitter = t.isBuilding ? TILE * 0.6 : 3;
     const hx = t.x + this.rng.range(-jitter, jitter);
     const hy = t.y + this.rng.range(-jitter, jitter);
+    // Visual impact point (aircraft are drawn above their ground position).
+    const vy = hy - t.alt;
     switch (w.projectile) {
       case 'bullet':
       case 'sniper':
-        this.fx('muzzle', mx, my, { x2: hx, y2: hy });
-        this.fx('tracer', mx, my, { x2: hx, y2: hy, color: w.projectile === 'sniper' ? '#fffbe0' : '#ffe58a' });
-        this.fx('smallHit', hx, hy);
+        this.fx('muzzle', mx, my, { x2: hx, y2: vy });
+        this.fx('tracer', mx, my, { x2: hx, y2: vy, color: w.projectile === 'sniper' ? '#fffbe0' : '#ffe58a' });
+        this.fx('smallHit', hx, vy);
         this.damageWeapon(t, w, mult, e, e.owner);
         break;
       case 'laser':
-        this.fx('laser', mx, my - 10, { x2: hx, y2: hy, color: this.players[e.owner].color });
+        this.fx('laser', mx, my - (e.isBuilding ? 10 : 0), { x2: hx, y2: vy, color: w.color ?? this.players[e.owner].color });
         this.applySplash(hx, hy, w, mult, e, t.id);
+        break;
+      case 'sonic': {
+        this.fx('sonic', mx, my, { x2: hx, y2: hy });
+        this.sonicBeam(e, mx, my + e.alt, hx, hy, w, mult);
+        break;
+      }
+      case 'suicide':
+        this.fx('bigExplosion', e.x, e.y, { size: 2 });
+        this.emit({ t: 'shake', amount: 8 });
+        this.emit({ t: 'decal', kind: 'crater', x: e.x, y: e.y, size: 1.2 });
+        this.applySplash(e.x, e.y, w, mult, e, t.id);
+        this.kill(e, null, -1, true);
         break;
       case 'flame':
         this.fx('flame', mx, my, { x2: hx, y2: hy });
@@ -1476,11 +1636,14 @@ export class World {
         this.fx('muzzle', mx, my, { x2: hx, y2: hy, size: w.projectile === 'artillery' ? 2 : 1 });
         const dist = Math.hypot(hx - mx, hy - my);
         const speed = ((w.speed ?? 10) * TILE) / TICK_RATE;
-        const scatter = w.projectile === 'artillery' ? TILE * 0.7 : 0;
-        const tx = hx + this.rng.range(-scatter, scatter);
-        const ty = hy + this.rng.range(-scatter, scatter);
+        const bomb = w.projectile === 'bomb';
+        const scatter = w.projectile === 'artillery' ? TILE * 0.7 : bomb ? TILE * 0.8 : 0;
+        const tx = (bomb ? e.x : hx) + this.rng.range(-scatter, scatter);
+        const ty = (bomb ? e.y : hy) + this.rng.range(-scatter, scatter);
         this.projectiles.push({
           kind: w.projectile as Projectile['kind'],
+          sz: e.alt,
+          tz: bomb ? 0 : t.alt,
           owner: e.owner,
           srcId: e.id,
           targetId: t.id,
@@ -1491,7 +1654,7 @@ export class World {
           tx,
           ty,
           t: 0,
-          dur: Math.max(2, Math.round(dist / speed)),
+          dur: bomb ? 14 : Math.max(2, Math.round(dist / speed)),
           speed,
           weapon: w,
           mult,
@@ -1535,13 +1698,30 @@ export class World {
     p.dead = true;
     const w = p.weapon;
     const size = Math.max(0.5, (w.splash ?? 0.3) * 1.6);
-    this.fx(p.kind === 'artillery' ? 'explosion' : 'smallHit', p.tx, p.ty, { size });
-    if (p.kind === 'artillery') {
+    const big = p.kind === 'artillery' || p.kind === 'bomb';
+    this.fx(big ? 'explosion' : 'smallHit', p.tx, p.ty - p.tz, { size, color: w.color });
+    if (big) {
       this.emit({ t: 'decal', kind: 'crater', x: p.tx, y: p.ty, size: 0.8 });
       this.sfx('explode', p.tx, p.ty);
     } else this.sfx('hit', p.tx, p.ty);
     const src = this.get(p.srcId) ?? null;
     this.applySplash(p.tx, p.ty, w, p.mult, src, p.targetId, p.owner);
+  }
+
+  /** Disruptor: a sonic wave that shakes apart everything along the line, friend or foe. */
+  private sonicBeam(e: Entity, x0: number, y0: number, x1: number, y1: number, w: WeaponDef, mult: number): void {
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const len = Math.hypot(dx, dy) || 1;
+    const near = this.spatial.query((x0 + x1) / 2, (y0 + y1) / 2, len / 2 + TILE, []);
+    for (const n of near) {
+      if (n === e || n.isAir) continue;
+      const t = Math.max(0, Math.min(1, ((n.x - x0) * dx + (n.y - y0) * dy) / (len * len)));
+      const px = x0 + dx * t;
+      const py = y0 + dy * t;
+      if (n.distTo(px, py) > TILE * 0.55 + (n.isUnit ? n.radius * 0.5 : 0)) continue;
+      this.damageWeapon(n, w, mult * (this.isEnemy(e.owner, n.owner) ? 1 : 0.6), e, e.owner);
+    }
   }
 
   private applySplash(x: number, y: number, w: WeaponDef, mult: number, attacker: Entity | null, directId: number, owner = attacker?.owner ?? -1): void {
@@ -1553,6 +1733,7 @@ export class World {
     }
     const near = this.spatial.query(x, y, R + 16, []);
     for (const n of near) {
+      if (n.id !== directId && !this.weaponHits(w, n)) continue;
       const enemy = owner < 0 || this.isEnemy(owner, n.owner);
       if (!enemy && !(this.cfg.mania && R >= TILE)) continue;
       const d = n.distTo(x, y) - (n.isUnit ? n.radius : 0);

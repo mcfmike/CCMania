@@ -214,6 +214,16 @@ export class Renderer {
       case 'tracer':
         p.beam({ x1: x, y1: y, x2, y2, max: 0.06, color: color ?? '#ffe58a', width: 1.2, glow: false });
         break;
+      case 'sonic': {
+        p.beam({ x1: x, y1: y, x2, y2, max: 0.45, color: '#7fe7ff', width: 5, glow: true });
+        const len = Math.hypot(x2 - x, y2 - y);
+        const steps = Math.max(3, Math.floor(len / 18));
+        for (let i = 1; i <= steps; i++) {
+          const k = i / steps;
+          p.ring({ x: x + (x2 - x) * k, y: y + (y2 - y) * k, r0: 2, r1: 16, max: 0.3 + k * 0.25, color: 'rgba(130,235,255,0.9)', width: 2 });
+        }
+        break;
+      }
       case 'laser':
         p.beam({ x1: x, y1: y, x2, y2, max: 0.35, color: '#ff3020', width: 3, glow: true });
         p.spawn(Sprite.Red, x, y, { size: 30, life: 0.35 });
@@ -454,7 +464,9 @@ export class Renderer {
       if (e.x + r < x0 || e.x - r > x1 || e.y + r < y0 || e.y - r > y1) continue;
       list.push(e);
     }
-    list.sort((a, b) => (a.isBuilding ? (a.ty + a.b.h) * TILE - 8 : a.y) - (b.isBuilding ? (b.ty + b.b.h) * TILE - 8 : b.y));
+    // Ground layer sorted by depth, aircraft always on top.
+    const depth = (e: Entity) => (e.isBuilding ? (e.ty + e.b.h) * TILE - 8 : e.y) + (e.isAir ? 1e6 : 0);
+    list.sort((a, b) => depth(a) - depth(b));
     for (const e of list) {
       const vis = w.visibleToHuman(e);
       const own = e.owner === w.humanIndex;
@@ -496,34 +508,52 @@ export class Renderer {
     }
   }
 
+  /** Screen-space y of a unit's body (aircraft float above their ground position). */
+  private bodyY(e: Entity): number {
+    if (!e.isAir) return e.y;
+    return e.y - e.alt + Math.sin(this.time * 2.2 + e.id) * 2;
+  }
+
   private drawUnit(ctx: CanvasRenderingContext2D, e: Entity, color: string, dt: number): void {
-    const s = unitSprite(e.type, color);
+    const faction = this.world.players[e.owner].faction;
+    const s = unitSprite(e.type, color, faction);
     const d = e.u;
-    if (d.cls === 'vehicle') {
+    const by = this.bodyY(e);
+    if (e.isAir) {
+      // Ground shadow under aircraft and jumpjets.
+      ctx.save();
+      ctx.translate(e.x + e.alt * 0.25, e.y + 4);
+      ctx.rotate(e.angle);
+      ctx.globalAlpha *= 0.3;
+      if (s.shadow) ctx.drawImage(s.shadow, -s.size / 2, -s.size / 2, s.size, s.size);
+      ctx.restore();
+    } else if (d.cls !== 'infantry') {
       ctx.fillStyle = 'rgba(0,0,0,0.28)';
       ctx.beginPath();
       ctx.ellipse(e.x + 3, e.y + 4, d.radius * 1.05, d.radius * 0.8, 0, 0, Math.PI * 2);
       ctx.fill();
     }
     let frame = 0;
-    if (d.cls === 'infantry') frame = e.moving ? Math.floor(e.walk / 5) % 2 : 2;
+    if (d.cls === 'infantry') frame = e.moving && !e.isAir ? Math.floor(e.walk / 5) % 2 : 2;
+    else if (s.body.length > 1) frame = e.moving ? Math.floor(e.walk / (d.walker ? 7 : 3)) % s.body.length : 0;
     ctx.save();
-    ctx.translate(e.x, e.y);
+    ctx.translate(e.x, by);
     ctx.rotate(e.angle);
-    ctx.drawImage(s.body[frame], -s.size / 2, -s.size / 2);
+    ctx.drawImage(s.body[frame], -s.size / 2, -s.size / 2, s.size, s.size);
     ctx.restore();
     if (s.turret) {
       ctx.save();
-      ctx.translate(e.x, e.y);
+      ctx.translate(e.x, by);
       ctx.rotate(e.turret);
-      ctx.drawImage(s.turret, -s.size / 2, -s.size / 2);
+      ctx.drawImage(s.turret, -s.size / 2, -s.size / 2, s.size, s.size);
       ctx.restore();
     }
+    this.drawUnitExtras(ctx, e, by, dt);
     if (e.flash > 0) {
       ctx.globalCompositeOperation = 'lighter';
       ctx.fillStyle = 'rgba(255,255,255,0.35)';
       ctx.beginPath();
-      ctx.arc(e.x, e.y, d.radius, 0, Math.PI * 2);
+      ctx.arc(e.x, by, d.radius, 0, Math.PI * 2);
       ctx.fill();
       ctx.globalCompositeOperation = 'source-over';
     }
@@ -545,8 +575,92 @@ export class Renderer {
     }
   }
 
+  /** Animated parts: rotors, sensor dishes, jammer pulses, jet exhaust, auras. */
+  private drawUnitExtras(ctx: CanvasRenderingContext2D, e: Entity, by: number, dt: number): void {
+    const t = this.time;
+    const rotor = (x: number, y: number, r: number, speed: number) => {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(t * speed + e.id);
+      ctx.fillStyle = 'rgba(30,30,30,0.35)';
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(20,20,20,0.85)';
+      for (let i = 0; i < 4; i++) {
+        ctx.rotate(Math.PI / 2);
+        ctx.fillRect(0, -1, r, 2);
+      }
+      ctx.restore();
+    };
+    const fx = (dx: number, dy: number) => [e.x + Math.cos(e.angle) * dx - Math.sin(e.angle) * dy, by + Math.sin(e.angle) * dx + Math.cos(e.angle) * dy];
+    switch (e.type) {
+      case 'harpy': {
+        const [x, y] = fx(0, 0);
+        rotor(x, y, 17, 28);
+        break;
+      }
+      case 'cicada':
+        for (const dx of [11, -12]) {
+          const [x, y] = fx(dx, 0);
+          rotor(x, y, 15, dx > 0 ? 24 : -24);
+        }
+        break;
+      case 'repairbot':
+        for (const a of [0.8, 2.35, 3.9, 5.5]) {
+          const [x, y] = fx(Math.cos(a) * 8, Math.sin(a) * 8);
+          rotor(x, y, 3.5, 40);
+        }
+        break;
+      case 'sensor': {
+        const [x, y] = fx(-3, 0);
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(t * 1.6 + e.id);
+        ctx.fillStyle = '#d7dbe0';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 3, 9, 0, -Math.PI / 2, Math.PI / 2);
+        ctx.fill();
+        ctx.strokeStyle = '#444';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.restore();
+        break;
+      }
+      case 'ecm': {
+        const k = (t * 0.8 + e.id * 0.13) % 1;
+        ctx.strokeStyle = `rgba(255,90,70,${(1 - k) * 0.5})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, k * (e.u.jammer ?? 6) * TILE, 0, Math.PI * 2);
+        ctx.stroke();
+        break;
+      }
+      case 'tactician':
+        if (e.owner === this.world.humanIndex) {
+          ctx.strokeStyle = 'rgba(255,215,90,0.18)';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 6]);
+          ctx.beginPath();
+          ctx.arc(e.x, e.y, (e.u.aura ?? 5) * TILE, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+        break;
+      case 'orca':
+      case 'banshee':
+      case 'jumpjet':
+        if (Math.random() < dt * 25) {
+          const [x, y] = fx(e.type === 'banshee' ? -14 : -6, 0);
+          this.particles.spawn(e.type === 'banshee' ? Sprite.Green : Sprite.Cyan, x, y, { size: 6, grow: -4, life: 0.25 });
+        }
+        break;
+    }
+    if (e.u.hero && Math.random() < dt * 3) this.particles.spawn(e.type === 'vega' ? Sprite.Spark : Sprite.Red, e.x, by, { vz: 20, size: 5, life: 0.6 });
+  }
+
   private drawBuilding(ctx: CanvasRenderingContext2D, e: Entity, color: string, dt: number): void {
-    const s = buildingSprite(e.type, color);
+    const s = buildingSprite(e.type, color, this.world.players[e.owner].faction);
     const px = e.tx * TILE + s.ox;
     const py = e.ty * TILE + s.oy;
     if (e.built < 1) {
@@ -608,7 +722,7 @@ export class Renderer {
     } else {
       const r = e.radius + 3;
       x = e.x - r;
-      y = e.y - r;
+      y = this.bodyY(e) - r;
       w = h = r * 2;
     }
     const l = Math.min(8, w / 3);
@@ -632,7 +746,7 @@ export class Renderer {
     const ratio = Math.max(0, e.hp / e.maxHp);
     const w = e.isBuilding ? e.b.w * TILE - 6 : Math.max(16, e.radius * 2);
     const x = e.isBuilding ? e.tx * TILE + 3 : e.x - w / 2;
-    const y = e.isBuilding ? e.ty * TILE - 6 : e.y - e.radius - 8;
+    const y = e.isBuilding ? e.ty * TILE - 6 : this.bodyY(e) - e.radius - 8;
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
     ctx.fillRect(x - 1, y - 1, w + 2, 5);
     ctx.fillStyle = ratio > 0.5 ? '#3cff4a' : ratio > 0.25 ? '#ffd23c' : '#ff3c3c';
@@ -648,7 +762,7 @@ export class Renderer {
 
   private drawRank(ctx: CanvasRenderingContext2D, e: Entity): void {
     const x = e.x + e.radius;
-    const y = e.y - e.radius - 2;
+    const y = this.bodyY(e) - e.radius - 2;
     ctx.fillStyle = '#ffd84a';
     ctx.strokeStyle = '#000';
     ctx.lineWidth = 0.8;
@@ -679,6 +793,43 @@ export class Renderer {
     if (trail) this.trailTimer = 0;
     for (const p of this.world.projectiles) {
       if (p.dead) continue;
+      const k0 = Math.min(1, p.t / Math.max(1, p.dur));
+      const z = p.sz + (p.tz - p.sz) * (p.kind === 'rocket' ? Math.min(1, p.t / 12) : k0);
+      if (p.kind === 'bomb') {
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#2b2d30';
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y - z, 2.2, 3.4, 0, 0, Math.PI * 2);
+        ctx.fill();
+        continue;
+      }
+      if (p.kind === 'plasma') {
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.fillStyle = p.weapon.color ?? '#5dff8a';
+        ctx.globalAlpha = 0.5;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y - z, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y - z, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalCompositeOperation = 'source-over';
+        continue;
+      }
+      ctx.save();
+      ctx.translate(0, -z);
+      this.drawProjectile(ctx, p, trail);
+      ctx.restore();
+    }
+  }
+
+  private drawProjectile(ctx: CanvasRenderingContext2D, p: World['projectiles'][number], trail: boolean): void {
+    {
       if (p.kind === 'artillery') {
         const k = p.t / p.dur;
         const dist = Math.hypot(p.tx - p.sx, p.ty - p.sy);
@@ -828,7 +979,7 @@ export class Renderer {
           ctx.fillStyle = ok ? 'rgba(60,255,90,0.35)' : 'rgba(255,50,50,0.45)';
           ctx.fillRect((pl.tx + x) * TILE, (pl.ty + y) * TILE, TILE, TILE);
         }
-      const s = buildingSprite(pl.id, player.color);
+      const s = buildingSprite(pl.id, player.color, player.faction);
       ctx.globalAlpha = 0.6;
       ctx.drawImage(s.img, pl.tx * TILE + s.ox, pl.ty * TILE + s.oy);
       ctx.globalAlpha = 1;
