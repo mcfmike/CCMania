@@ -227,6 +227,11 @@ const VOICES: Record<string, Voice> = {
     a.noiseBurst(t, 0.6, 0.7 * v, 'lowpass', 700, 80, 0.7);
     a.tone(t, 0.5, 0.8 * v, 'sine', 90, 28);
   },
+  sonic: (a, t, v) => {
+    // Warbling low-frequency wave.
+    for (let i = 0; i < 4; i++) a.tone(t + i * 0.07, 0.3, 0.3 * v, 'sawtooth', 160 - i * 25, 60 - i * 8);
+    a.noiseBurst(t, 0.5, 0.35 * v, 'bandpass', 400, 120, 3);
+  },
   hit: (a, t, v) => {
     a.noiseBurst(t, 0.12, 0.35 * v, 'lowpass', 2000, 300);
   },
