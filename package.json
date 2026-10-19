@@ -1,0 +1,20 @@
+{
+  "name": "ccmania",
+  "private": true,
+  "version": "0.1.0",
+  "description": "CC Mania - a single-player real-time strategy homage to Command & Conquer",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build:artifact": "npm run build && node scripts/build-artifact.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.2.4"
+  }
+}
